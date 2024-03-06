@@ -22,8 +22,8 @@ Y = df.iloc[:, 6].values
 # regr = make_pipeline(StandardScaler(),  SVR(C=5, kernel='rbf', epsilon=2, max_iter=50000), verbose=True)
 # [28.14127404]
 
-regr = make_pipeline(StandardScaler(),  SVR(C=5, kernel='rbf', epsilon=2, max_iter=50000), verbose=True)
-# [28.14127404]
+regr = make_pipeline(StandardScaler(),  SVR(C=7, kernel='rbf', epsilon=2, max_iter=50000), verbose=True)
+
 
 regr.fit(X, Y)
 
