@@ -9,7 +9,7 @@ import Lasso
 
 def main():
     # Importing dataset
-    df = pd.read_csv("data//ESG_reg_small.csv")
+    df = pd.read_csv("data//ESG_reg.csv")
     X = df.iloc[:, :-1].values
     Y = df.iloc[:, 1].values
 
