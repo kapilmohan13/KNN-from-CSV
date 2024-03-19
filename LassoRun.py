@@ -1,4 +1,6 @@
 # Importing libraries
+import pickle
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -9,9 +11,9 @@ import Lasso
 
 def main():
     # Importing dataset
-    df = pd.read_csv("data//ESG_reg.csv")
+    df = pd.read_csv("data//ESG2.csv")
     X = df.iloc[:, :-1].values
-    Y = df.iloc[:, 1].values
+    Y = df.iloc[:, 10].values
 
     # Standardize features
     scaler = StandardScaler()
@@ -19,7 +21,7 @@ def main():
 
     # Splitting dataset into train and test set
     X_train, X_test, Y_train, Y_test = train_test_split(
-        X, Y, test_size=0.1, train_size= 0.9,random_state=0)
+        X, Y, test_size=0.1, train_size=0.9, random_state=0)
 
     # Model training
     model = Lasso.LassoRegression(
@@ -34,14 +36,26 @@ def main():
     print("Trained W:	 ", round(model.W[0], 2))
     print("Trained b:	 ", round(model.b, 2))
 
+    # Test a prediction
+    check = [[4.04, 7.18, 0.031400003, 0.70972, 0.13052, 1.5734333, 3.67, 1.498, 1, 1]]  # 29.24
+    check2 = [[14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1]]  # 18.03
+    npd = np.array([14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1])
+    y_new_pred = model.predict(npd)
+    print(y_new_pred)
+
+    # Write model
+    filename = "models//" + "Lasso_model.sav"
+    with open(filename, 'wb') as f:
+        pickle.dump(model, f)
+
     # Visualization on test set
-    plt.scatter(X_test, Y_test, color='blue', label='Actual Data')
-    plt.plot(X_test, Y_pred, color='orange', label='Lasso Regression Line')
-    plt.title('Salary vs Experience (Lasso Regression)')
-    plt.xlabel('Years of Experience (Standardized)')
-    plt.ylabel('Salary')
-    plt.legend()
-    plt.show()
+    # plt.scatter(X_test, Y_test, color='blue', label='Actual Data')
+    # plt.plot(X_test, Y_pred, color='orange', label='Lasso Regression Line')
+    # plt.title('Salary vs Experience (Lasso Regression)')
+    # plt.xlabel('Years of Experience (Standardized)')
+    # plt.ylabel('Salary')
+    # plt.legend()
+    # plt.show()
 
 
 if __name__ == "__main__":
