@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error as MSE
 
 # Load the data
-dataset = pd.read_csv("data//ESG_reg.csv")
+dataset = pd.read_csv("data//ESG2.csv")
 X, y = dataset.iloc[:, :-1], dataset.iloc[:, -1]
 
 # Splitting
