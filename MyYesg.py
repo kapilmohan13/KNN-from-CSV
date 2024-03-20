@@ -17,8 +17,7 @@ def get_esg_full(ticker):
 
 # Downloads historic ESG ratings and returns it as a dataframe
 def get_historic_esg(ticker):
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) '
-                             'Chrome/50.0.2661.102 Safari/537.36'}
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
 
     response = requests.get('https://query2.finance.yahoo.com/v1/finance/esgChart', params={"symbol": ticker},
                             headers=headers)

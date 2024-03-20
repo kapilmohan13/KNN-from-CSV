@@ -9,11 +9,11 @@ import datetime
 
 
 # READ  TICKERS TO SCRAP FROM YAHOO FINANCE
-sp_500 = pd.read_csv("Tickers//temp.csv")
+sp_500 = pd.read_csv("Tickers//T2.csv")
 newList = []  # this will contain the out fields with ESG rating post iteration on tickers
 
 for symbol in sp_500["SYMBOL"]:
-    #try:
+    try:
         # Here We are getting Facebook financial information
         # We need to pass FB as argument for that
         print("Processing symbol: "+symbol)
@@ -21,8 +21,8 @@ for symbol in sp_500["SYMBOL"]:
         obj = GetFacebookInformation.info
         # newTickerdf = pd.DataFrame(obj)
         # print(newTickerdf)
-        # print(obj.get("esgScores"))
-        df = MyYesg.get_historic_esg(symbol)
+
+        df = yesg.get_historic_esg(symbol)
         if df is None:
             continue
         last_row = df.iloc[-1:]
@@ -45,14 +45,14 @@ for symbol in sp_500["SYMBOL"]:
         print(newObjDict)
 
         newList.append(newObjDict)
-    # except Exception as e:
-    #     print(f"An unexpected error occurred: {e}")
-    #     print(f"Exception type: {type(e)}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        print(f"Exception type: {type(e)}")
 
 # Write to file
 header_info = ["trailingEps", "forwardEps", "heldPercentInsiders", "heldPercentInstitutions", "profitMargins",
                "priceToSalesTrailing12Months", "payOutRatio", "fiveYearAvgDividendYield", "beta", "overallRisk", "boardRisk", "ESG_score"]
-with open('data//ESG_temp.csv', 'w', newline='') as csvfile:
+with open('data//ESG_T2.csv', 'w', newline='') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=header_info)
     writer.writeheader()
     writer.writerows(newList)
