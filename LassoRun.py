@@ -10,9 +10,23 @@ import Lasso
 
 
 def main():
+    # precictorLasso()
+    runLasso()
+
+def precictorLasso():
+    filename = "models//" + "Lasso_model.sav"
+
+    pickled_model = pickle.load(open(filename, 'rb'))
+    check = [[0.383665561, 12.58, 3.73, 0.38, 3.19, 3.01, 1.49, 8.69, 26.69]]
+    y_pred = pickled_model.predict(check)
+    # 29.88432455
+    print(y_pred)
+
+
+def runLasso():
     # Importing dataset
-    df = pd.read_csv("data//ESG2.csv")
-    X = df.iloc[:, :-1].values
+    df = pd.read_csv("data//ESG_large_set.csv")
+    X = df.iloc[:, 2:11].values
     Y = df.iloc[:, 10].values
 
     # Standardize features
@@ -56,6 +70,7 @@ def main():
     # plt.ylabel('Salary')
     # plt.legend()
     # plt.show()
+
 
 
 if __name__ == "__main__":

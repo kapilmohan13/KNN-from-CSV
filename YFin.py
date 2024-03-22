@@ -5,15 +5,21 @@ import yesg
 import MyYesg
 import pandas as pd
 import datetime
+from time import sleep
 
 
 
 # READ  TICKERS TO SCRAP FROM YAHOO FINANCE
-sp_500 = pd.read_csv("Tickers//temp.csv")
+sp_500 = pd.read_csv("Tickers//T1.csv")
 newList = []  # this will contain the out fields with ESG rating post iteration on tickers
-
+loop = 1
 for symbol in sp_500["SYMBOL"]:
-    #try:
+    if loop % 250 == 0:
+        #sleep to slow down
+        print("SLEEPING . .")
+        sleep(605)
+    loop = loop + 1
+    try:
         # Here We are getting Facebook financial information
         # We need to pass FB as argument for that
         print("Processing symbol: "+symbol)
@@ -45,14 +51,14 @@ for symbol in sp_500["SYMBOL"]:
         print(newObjDict)
 
         newList.append(newObjDict)
-    # except Exception as e:
-    #     print(f"An unexpected error occurred: {e}")
-    #     print(f"Exception type: {type(e)}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        print(f"Exception type: {type(e)}")
 
 # Write to file
 header_info = ["trailingEps", "forwardEps", "heldPercentInsiders", "heldPercentInstitutions", "profitMargins",
                "priceToSalesTrailing12Months", "payOutRatio", "fiveYearAvgDividendYield", "beta", "overallRisk", "boardRisk", "ESG_score"]
-with open('data//ESG_temp.csv', 'w', newline='') as csvfile:
+with open('data//ESG1.csv', 'w', newline='') as csvfile:
     writer = csv.DictWriter(csvfile, fieldnames=header_info)
     writer.writeheader()
     writer.writerows(newList)
