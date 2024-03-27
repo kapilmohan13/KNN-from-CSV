@@ -13,8 +13,11 @@ import pickle
 
 df = pd.read_csv("data//ESG_large_set.csv")
 X = df.iloc[:, 2:11].values
-Y = df.iloc[:, 10].values
+Y = df.iloc[:, 11].values
 
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.01, random_state=42)
 
 # svr = SVR(kernel='rbf')
 # svr.fit(X, Y)
@@ -35,15 +38,15 @@ Y = df.iloc[:, 10].values
 
 regr = make_pipeline(StandardScaler(),  SVR(C=8, kernel='rbf', epsilon=0.3, max_iter=100000), verbose=True)
 print("Running model SVR..")
-regr.fit(X, Y)
+regr.fit(X_train, y_train)
 print("done")
 #
 # check = [[4.04, 7.18, 0.031400003, 0.70972, 0.13052, 1.5734333, 3.67, 1.498, 1, 1]]
 # check2 = [[14.74,7.88,0.01503,1.03713,0.23464,0.61634886,2.25,1.964,1,1]]
 # X_test = np.arange(0, 5, 0.01)[:, np.newaxis]
 #
-# y_pred = regr.predict(check2)
-# print(y_pred)
+y_pred = regr.predict(X_test)
+print(y_pred)
 #
 print("Saving model..")
 filename = "models//" + "SVR_hyp2_C8.sav"
@@ -57,3 +60,12 @@ print("done")
 # plt.title('Support Vector Regression (SVR) with RBF Kernel')
 # plt.legend()
 # plt.show()
+
+x1 = np.arange(0, y_pred.size, 1)
+plt.title("SVR")
+plt.plot(x1, y_test, label="Actual")
+plt.plot(x1, y_pred, label="Prediction")
+plt.xlabel('x - axis')
+plt.ylabel('y - axis')
+plt.legend()
+plt.show()

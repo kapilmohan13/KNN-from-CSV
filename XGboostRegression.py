@@ -4,12 +4,13 @@ import pickle
 import numpy as np
 import pandas as pd
 import xgboost as xg
+from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error as MSE
 
 # Load the data
 dataset = pd.read_csv("data//ESG_large_set.csv")
-X, y = dataset.iloc[:, 2:11], dataset.iloc[:, 10]
+X, y = dataset.iloc[:, 2:11], dataset.iloc[:, 11]
 
 # Splitting
 train_X, test_X, train_y, test_y = train_test_split(X, y,
@@ -36,3 +37,14 @@ pred = xgb_r.predict(test_dmatrix)
 # RMSE Computation
 rmse = np.sqrt(MSE(test_y, pred))
 print("RMSE : % f" % (rmse))
+
+
+
+x1 = np.arange(0, pred.size, 1)
+plt.title("XG Boost")
+plt.plot(x1, test_y, label="Actual")
+plt.plot(x1, pred, label="Prediction")
+plt.xlabel('x - axis')
+plt.ylabel('y - axis')
+plt.legend()
+plt.show()
