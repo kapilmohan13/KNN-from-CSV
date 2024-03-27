@@ -9,15 +9,15 @@ import matplotlib.pyplot as plt
 def main():
     start = time.time()
 
-    #Run prediction only
-    print("Running Random Forest prediction..", end=" ")
-    predictorRandomForest()
-    print("done.")
-
-    # #Run model
-    # print("Running Random Forest model..", end=" ")
-    # runRandomForest()
+    # #Run prediction only
+    # print("Running Random Forest prediction..", end=" ")
+    # predictorRandomForest()
     # print("done.")
+
+    #Run model
+    print("Running Random Forest model..", end=" ")
+    runRandomForest()
+    print("done.")
 
     end = time.time()
     print("Total time to run : ", end=" ")
@@ -37,11 +37,11 @@ def runRandomForest():
     df = pd.read_csv('data//ESG_large_set.csv')
 
     X = df.iloc[:, 2:11].values
-    Y = df.iloc[:, 10].values
+    Y = df.iloc[:, 11].values
 
     from sklearn.model_selection import train_test_split
 
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.01, random_state=42)
 
     from sklearn.ensemble import RandomForestRegressor
 
@@ -50,6 +50,9 @@ def runRandomForest():
 
     # Train the model
     regressor.fit(X_train, y_train)
+    r2 = regressor.score(X_test, y_test)
+    print("r2=", end=" ")
+    print(r2)
 
     # Write model
     print("writing model...", end=" ")
@@ -58,7 +61,15 @@ def runRandomForest():
         pickle.dump(regressor, f)
     print("done.")
 
-    y_pred = regressor.predict(X_test)
+    ypred = regressor.predict(X_test)
+
+    x1 = np.arange(0, ypred.size, 1)
+    plt.plot(x1, y_test, label="Actual")
+    plt.plot(x1, ypred, label="Prediction")
+    plt.xlabel('x - axis')
+    plt.ylabel('y - axis')
+    plt.legend()
+    plt.show()
 
     from sklearn.metrics import accuracy_score, classification_report
 

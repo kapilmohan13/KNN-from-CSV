@@ -39,7 +39,7 @@ def runLasso():
     # Importing dataset
     df = pd.read_csv("data//ESG_large_set.csv")
     X = df.iloc[:, 2:11].values
-    Y = df.iloc[:, 10].values
+    Y = df.iloc[:, 11].values
 
     # Standardize features
     scaler = StandardScaler()
@@ -47,7 +47,7 @@ def runLasso():
 
     # Splitting dataset into train and test set
     X_train, X_test, Y_train, Y_test = train_test_split(
-        X, Y, test_size=0.1, train_size=0.9, random_state=0)
+        X, Y, test_size=0.01, train_size=0.9, random_state=0)
 
     # Model training
     print("Fitting model...", end=" ")
@@ -77,7 +77,6 @@ def runLasso():
     npd = np.array([14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1])
     y_new_pred = model.predict(npd)
     print(y_new_pred)
-
 
 
     # Visualization on test set
