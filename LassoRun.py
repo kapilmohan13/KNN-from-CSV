@@ -82,7 +82,6 @@ def runLasso():
     # y_new_pred = model.predict(npd)
     # print(y_new_pred)
 
-
     # Visualization on test set
     # plt.scatter(X_test, Y_test, color='blue', label='Actual Data')
     # plt.plot(X_test, Y_pred, color='orange', label='Lasso Regression Line')
