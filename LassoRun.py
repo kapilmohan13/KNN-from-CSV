@@ -13,12 +13,12 @@ import Lasso
 def main():
     start = time.time()
 
-    #Run prediction only
-    print("Running Lasso prediction..")
-    precictorLasso()
+    # #Run prediction only
+    # print("Running Lasso prediction..")
+    # precictorLasso()
 
-    # # Run model
-    # runLasso()
+    # Run model
+    runLasso()
 
     end = time.time()
     print("Total time to run model training: ", end=" ")
@@ -65,18 +65,22 @@ def runLasso():
 
     # Prediction on test set
     Y_pred = model.predict(X_test)
+    from sklearn.metrics import r2_score
+    r2_sc = r2_score(Y_test, Y_pred)
+    print("r2_sc=", end=" ")
+    print(r2_sc)
 
-    print("Predicted values: ", np.round(Y_pred[:3], 2))
-    print("Real values:	 ", Y_test[:3])
-    print("Trained W:	 ", round(model.W[0], 2))
-    print("Trained b:	 ", round(model.b, 2))
-
-    # Test a prediction
-    check = [[4.04, 7.18, 0.031400003, 0.70972, 0.13052, 1.5734333, 3.67, 1.498, 1, 1]]  # 29.24
-    check2 = [[14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1]]  # 18.03
-    npd = np.array([14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1])
-    y_new_pred = model.predict(npd)
-    print(y_new_pred)
+    # print("Predicted values: ", np.round(Y_pred[:3], 2))
+    # print("Real values:	 ", Y_test[:3])
+    # print("Trained W:	 ", round(model.W[0], 2))
+    # print("Trained b:	 ", round(model.b, 2))
+    #
+    # # Test a prediction
+    # check = [[4.04, 7.18, 0.031400003, 0.70972, 0.13052, 1.5734333, 3.67, 1.498, 1, 1]]  # 29.24
+    # check2 = [[14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1]]  # 18.03
+    # npd = np.array([14.74, 7.88, 0.01503, 1.03713, 0.23464, 0.61634886, 2.25, 1.964, 1, 1])
+    # y_new_pred = model.predict(npd)
+    # print(y_new_pred)
 
 
     # Visualization on test set
