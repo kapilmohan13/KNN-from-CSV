@@ -53,7 +53,7 @@ def runGradientBoostClassifier():
 
     from sklearn.ensemble import GradientBoostingClassifier
     # Create the model
-    model = GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=1, random_state=0)
+    model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=3, verbose=1, random_state=21)
 
     # Train the model
     model.fit(X_train, y_train)
