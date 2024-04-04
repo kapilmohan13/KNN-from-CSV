@@ -24,7 +24,7 @@ def main():
     # print("done.")
 
     # Run model cross validation
-    print("Running Random Forest model and cross validation..", end=" ")
+    print("Running SVM classification model and cross validation..", end=" ")
     runRandomForestCV()
     print("done.")
 
