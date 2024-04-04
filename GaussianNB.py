@@ -18,7 +18,7 @@ def main():
     # predictorGaussianNB()
     # print("done.")
 
-    #Run model
+    # Run model
     print("Running Gaussian NB model..", end=" ")
     runGaussianNB()
     print("done.")
@@ -27,15 +27,20 @@ def main():
     print("Total time to run : ", end=" ")
     print(end - start)
 
-def predictorGaussianNB():
-    filename = "models//" + "GaussianNB_model.sav"
+
+def predictorGaussianNB(predictioninput):
+    filename = "..//models//" + "GaussianNB_model.sav"
 
     pickled_model = pickle.load(open(filename, 'rb'))
     check = [[0.383665561, 12.58, 3.73, 0.38, 3.19, 3.01, 1.49, 8.69, 26.69]]
+    if predictioninput is None:
+        predictioninput = check
     # npd = np.array([0.383665561, 12.58, 3.73, 0.38, 3.19, 3.01, 1.49, 8.69, 26.69])
-    y_pred = pickled_model.predict(check)
+    y_pred = pickled_model.predict(predictioninput)
     # 29.88432455
     print(y_pred)
+    return y_pred
+
 
 def runGaussianNB():
     df = pd.read_csv('data//ESG_large_set.csv')
@@ -86,7 +91,6 @@ def runGaussianNB():
     print("Accuracy:", accuray)
     print("F1 Score:", f1)
 
-
     labels = list(set(output_array))
     cm = confusion_matrix(y_test, y_pred, labels=labels)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
@@ -103,7 +107,6 @@ def runGaussianNB():
     # print("Accuracy:", accuracy)
     # print("Precision:", precision)
     # print("Recall:", recall)
-
 
 
 if __name__ == "__main__":
