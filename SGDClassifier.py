@@ -5,10 +5,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import precision_score, recall_score
 from sklearn.model_selection import RepeatedStratifiedKFold, GridSearchCV
 from sklearn import svm
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 
 def main():
@@ -19,22 +22,23 @@ def main():
     # predictorRandomForest()
     # print("done.")
 
-    #Run model
+    # Run model
     print("Running SVM Classifier model..", end=" ")
-    runSVMClassifier()
+    runSGDClassifier()
     print("done.")
 
     # # Run model cross validation
     # print("Running SVM classification model and cross validation..", end=" ")
-    # runRandomForestCV()
+    # runSGDClassifierCV()
     # print("done.")
 
     end = time.time()
     print("Total time to run : ", end=" ")
     print(end - start)
 
-def predictorSVMClassifier():
-    filename = "models//" + "SVMClassifier_model.sav"
+
+def predictorSGDClassifier():
+    filename = "models//" + "SGDClassifier_model.sav"
 
     pickled_model = pickle.load(open(filename, 'rb'))
     check = [[0.383665561, 12.58, 3.73, 0.38, 3.19, 3.01, 1.49, 8.69, 26.69]]
@@ -43,7 +47,8 @@ def predictorSVMClassifier():
     # 29.88432455
     print(y_pred)
 
-def runSVMClassifier():
+
+def runSGDClassifier():
     df = pd.read_csv('data//ESG_large_set.csv')
 
     X = df.iloc[:, 2:11].values
@@ -62,9 +67,7 @@ def runSVMClassifier():
     from sklearn.ensemble import RandomForestRegressor
 
     # Create the model
-    model = svm.SVC(kernel='linear')
-    print("DONE")
-
+    model = make_pipeline(StandardScaler(), SGDClassifier(max_iter=5000, loss="squared_hinge", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
 
     # Train the model
     startmodel = time.time()
@@ -76,14 +79,13 @@ def runSVMClassifier():
     print("Model training time:", end=" ")
     print(endmodeltime - startmodel)
 
-
     # r2 = regressor.score(X_test, y_test)
     # print("r2=", end=" ")
     # print(r2)
 
     # Write model
     print("writing model...", end=" ")
-    filename = "models//" + "SVMClassfier_model.sav"
+    filename = "models//" + "SGDClassfier_model.sav"
     with open(filename, 'wb') as f:
         pickle.dump(model, f)
     print("done.")
@@ -112,7 +114,7 @@ def runSVMClassifier():
     # print(classification_report(y_test, y_pred))
 
 
-def runRandomForestCV():
+def runSGDClassifierCV():
     df = pd.read_csv('data//ESG_large_set.csv')
 
     X = df.iloc[:, 2:11].values
@@ -176,6 +178,7 @@ def runRandomForestCV():
 
     # print(f'Accuracy: {accuracy_score(y_test, y_pred):.2f}')
     # print(classification_report(y_test, y_pred))
+
 
 if __name__ == "__main__":
     main()
