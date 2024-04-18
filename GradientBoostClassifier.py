@@ -18,7 +18,7 @@ def main():
     # print("done.")
 
     #Run model
-    print("Running Gradient Boost Classification model..", end=" ")
+    print("Running Gradient Boost Classification model..")
     runGradientBoostClassifier()
     print("done.")
 
@@ -53,7 +53,7 @@ def runGradientBoostClassifier():
 
     from sklearn.ensemble import GradientBoostingClassifier
     # Create the model
-    model = GradientBoostingClassifier(n_estimators=100, learning_rate=0.1, max_depth=3, verbose=1, random_state=21)
+    model = GradientBoostingClassifier(n_estimators=2000, learning_rate=0.02, max_depth=3, verbose=1, random_state=121)
 
     # Train the model
     model.fit(X_train, y_train)
@@ -78,10 +78,10 @@ def runGradientBoostClassifier():
     )
 
     y_pred = model.predict(X_test)
-    accuray = accuracy_score(y_pred, y_test)
+    accuracy = accuracy_score(y_pred, y_test)
     f1 = f1_score(y_pred, y_test, average="weighted")
 
-    print("Accuracy:", accuray)
+    print("Accuracy:", accuracy)
     print("F1 Score:", f1)
 
 

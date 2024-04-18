@@ -6,12 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.metrics import precision_score, recall_score
 from sklearn.model_selection import RepeatedStratifiedKFold, GridSearchCV
 from sklearn import svm
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 
 def main():
@@ -67,7 +68,10 @@ def runSGDClassifier():
     from sklearn.ensemble import RandomForestRegressor
 
     # Create the model
-    model = make_pipeline(StandardScaler(), SGDClassifier(max_iter=5000, loss="squared_hinge", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
+    # model = make_pipeline(StandardScaler(), SGDClassifier(max_iter=5000, loss="squared_hinge", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
+    #Accuracy: 0.770293609671848
+
+    model = make_pipeline(StandardScaler(), SGDClassifier(max_iter=5000, loss="log_loss", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
 
     # Train the model
     startmodel = time.time()
@@ -95,10 +99,24 @@ def runSGDClassifier():
     accuracy = accuracy_score(y_test, ypred)
     precision = precision_score(y_test, ypred, average=None)
     recall = recall_score(y_test, ypred, average=None)
+    f1 = f1_score(ypred, y_test, average="weighted")
+
 
     print("Accuracy:", accuracy)
     print("Precision:", precision)
     print("Recall:", recall)
+    print("f1_score:", f1)
+
+
+
+    labels = list(set(output_array))
+    cm = confusion_matrix(y_test, ypred, labels=labels)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+    print("Plotting..")
+
+    disp.plot(xticks_rotation="vertical")
+    plt.show()
+
 
     # x1 = np.arange(0, ypred.size, 1)
     # plt.plot(x1, y_test, label="Actual")

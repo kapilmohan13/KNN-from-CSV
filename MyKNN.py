@@ -20,7 +20,9 @@ from sklearn.metrics import (
 # X = np.sort(5 * np.random.rand(40, 1), axis=0)
 # y = np.sin(X).ravel()
 # y[::5] += 3 * (0.5 - np.random.rand(8))
-
+filetoRun = "data//ESG_large_set.csv"
+print("Running file:", end='\n')
+print(filetoRun)
 df = pd.read_csv("data//ESG_large_set.csv")
 X = df.iloc[:, 2:11].values
 Y = df.iloc[:, 11].values
@@ -50,9 +52,9 @@ print("done")
 # Collect metrics
 
 
-accuray = accuracy_score(y_pred, y_test)
+accuracy = accuracy_score(y_pred, y_test)
 f1 = f1_score(y_pred, y_test, average="weighted")
-print("Accuracy:", accuray)
+print("Accuracy:", accuracy)
 print("F1 Score:", f1)
 labels = list(set(output_array))
 cm = confusion_matrix(y_test, y_pred, labels=labels)

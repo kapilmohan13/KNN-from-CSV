@@ -5,9 +5,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.metrics import precision_score, recall_score
 from sklearn.model_selection import RepeatedStratifiedKFold, GridSearchCV
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+
 
 
 def main():
@@ -18,15 +21,15 @@ def main():
     # predictorRandomForest()
     # print("done.")
 
-    # #Run model
-    # print("Running Random Forest model..", end=" ")
-    # runRandomForest()
-    # print("done.")
+    #Run model
+    print("Running Random Forest model..", end=" ")
+    runRandomForest()
+    print("done.")
 
     # Run model cross validation
-    print("Running Random Forest model an cross validation..", end=" ")
-    runRandomForestCV()
-    print("done.")
+    # print("Running Random Forest model an cross validation..", end=" ")
+    # runRandomForestCV()
+    # print("done.")
 
     end = time.time()
     print("Total time to run : ", end=" ")
@@ -56,12 +59,12 @@ def runRandomForest():
 
     from sklearn.model_selection import train_test_split
 
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.01, random_state=421)
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.1, random_state=421)
 
     from sklearn.ensemble import RandomForestRegressor
 
     # Create the model
-    regressor = RandomForestClassifier(max_depth=17, random_state=123)
+    regressor = RandomForestClassifier(max_depth=5, random_state=23)
 
     # Train the model
     regressor.fit(X_train, y_train)
@@ -81,10 +84,21 @@ def runRandomForest():
     accuracy = accuracy_score(y_test, ypred)
     precision = precision_score(y_test, ypred, average=None)
     recall = recall_score(y_test, ypred, average=None)
+    f1 = f1_score(ypred, y_test, average="weighted")
+
 
     print("Accuracy:", accuracy)
     print("Precision:", precision)
     print("Recall:", recall)
+    print("f1_score:", f1)
+
+    labels = list(set(output_array))
+    cm = confusion_matrix(y_test, ypred, labels=labels)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+    print("Plotting..")
+
+    disp.plot(xticks_rotation="vertical")
+    plt.show()
 
     # x1 = np.arange(0, ypred.size, 1)
     # plt.plot(x1, y_test, label="Actual")
@@ -147,10 +161,13 @@ def runRandomForestCV():
     accuracy = accuracy_score(y_test, ypred)
     precision = precision_score(y_test, ypred, average=None)
     recall = recall_score(y_test, ypred, average=None)
+    f1 = f1_score(ypred, y_test, average="weighted")
 
     print("Accuracy:", accuracy)
     print("Precision:", precision)
     print("Recall:", recall)
+    print("f1_score:", f1)
+
 
     # x1 = np.arange(0, ypred.size, 1)
     # plt.plot(x1, y_test, label="Actual")
