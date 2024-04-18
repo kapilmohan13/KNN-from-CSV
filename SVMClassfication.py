@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.metrics import precision_score, recall_score
 from sklearn.model_selection import RepeatedStratifiedKFold, GridSearchCV
 from sklearn import svm
@@ -97,6 +97,17 @@ def runSVMClassifier():
     print("Accuracy:", accuracy)
     print("Precision:", precision)
     print("Recall:", recall)
+    f1 = f1_score(ypred, y_test, average="weighted")
+    print("f1_score:", f1)
+
+    labels = list(set(output_array))
+    cm = confusion_matrix(y_test, ypred, labels=labels)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+    print("Plotting..")
+
+    disp.plot(xticks_rotation="vertical")
+    plt.show()
+
 
     # x1 = np.arange(0, ypred.size, 1)
     # plt.plot(x1, y_test, label="Actual")
