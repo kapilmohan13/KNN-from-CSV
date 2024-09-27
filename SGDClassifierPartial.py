@@ -1,6 +1,7 @@
 import pickle
 import time
 
+import numpy
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,9 +24,14 @@ def main():
     # predictorRandomForest()
     # print("done.")
 
-    # Run model
-    print("Running SVM Classifier model..", end=" ")
-    runSGDClassifier()
+    # # Run model
+    # print("Running SVM Classifier model..", end=" ")
+    # runSGDClassifier()
+    # print("done.")
+
+    # Run update model
+    print("Running SVM Classifier model update..", end=" ")
+    updateSGDClassifier()
     print("done.")
 
     # # Run model cross validation
@@ -37,9 +43,69 @@ def main():
     print("Total time to run : ", end=" ")
     print(end - start)
 
+def updateSGDClassifier():
+    filename = "models//" + "SGDClassifierPartial_model.sav"
+    pickled_model = pickle.load(open(filename, 'rb'))
+    df = pd.read_csv('data//ESG_large_set.csv')
+    Y = df.iloc[:, 11].values
+    output_array = []
+    for element in Y:
+        converted_str = str(element)
+        output_array.append(converted_str)
+
+    Y = output_array
+    # classes = numpy.unique(Y)
+
+    df_partial = pd.read_csv('data//ESG_small_set.csv')
+    X_partial = df_partial.iloc[:, 2:11].values
+    Y_partial = df_partial.iloc[:, 11].values
+    output_array = []
+    for element in Y_partial:
+        converted_str = str(element)
+        output_array.append(converted_str)
+
+    Y_partial = output_array
+    scaler = StandardScaler()
+    X_partial = scaler.fit_transform(X_partial)
+    pickled_model.partial_fit(X_partial, Y_partial, classes=numpy.unique(Y))
+
+    # Write model
+    print("writing model...", end=" ")
+    filename = "models//" + "SGDClassifierPartial_model.sav"
+    with open(filename, 'wb') as f:
+        pickle.dump(pickled_model, f)
+    print("done.")
+
+    ypred = pickled_model.predict(X_partial)
+    from sklearn.metrics import accuracy_score
+    accuracy = accuracy_score(Y_partial, ypred)
+    precision = precision_score(Y_partial, ypred, average=None)
+    recall = recall_score(Y_partial, ypred, average=None)
+    f1 = f1_score(ypred, Y_partial, average="weighted")
+
+
+    print("Accuracy:", accuracy)
+    print("Precision:", precision)
+    print("Recall:", recall)
+    print("f1_score:", f1)
+
+
+
+    labels = list(set(output_array))
+    cm = confusion_matrix(Y_partial, ypred, labels=labels)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+    print("Plotting..")
+
+    disp.plot(xticks_rotation="vertical")
+    plt.show()
+
+
+
+
+
 
 def predictorSGDClassifier():
-    filename = "models//" + "SGDClassifier_model.sav"
+    filename = "models//" + "SGDClassifierPartial_model.sav"
 
 
     pickled_model = pickle.load(open(filename, 'rb'))
@@ -72,12 +138,17 @@ def runSGDClassifier():
     # model = make_pipeline(StandardScaler(), SGDClassifier(max_iter=5000, loss="squared_hinge", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
     #Accuracy: 0.770293609671848
 
-    model = make_pipeline(StandardScaler(), SGDClassifier(max_iter=5000, loss="log_loss", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
+    pipeline = make_pipeline(StandardScaler(), SGDClassifier(warm_start=True, max_iter=5000, loss="log_loss", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3))
 
     # Train the model
     startmodel = time.time()
-    print("Starting model training...", end=" ")
-    model.fit(X_train, y_train)
+    print("Starting model training[initial partial fit]...", end=" ")
+    # model = SGDClassifier(warm_start=True, max_iter=5000, loss="log_loss", n_jobs=4, verbose=0, alpha=0.0001, tol=1e-3)
+    # scaler = StandardScaler()
+    # x_std = scaler.fit_transform(X_train)
+    # y_std = scaler.fit_transform(y_train)
+    pipeline.fit(X_train, y_train)
+    model = pipeline[1]
     startmodel = time.time()
     print("DONE")
     endmodeltime = time.time()
@@ -90,12 +161,12 @@ def runSGDClassifier():
 
     # Write model
     print("writing model...", end=" ")
-    filename = "models//" + "SGDClassifier_model.sav"
+    filename = "models//" + "SGDClassifierPartial_model.sav"
     with open(filename, 'wb') as f:
         pickle.dump(model, f)
     print("done.")
 
-    ypred = model.predict(X_test)
+    ypred = pipeline.predict(X_test)
     from sklearn.metrics import accuracy_score
     accuracy = accuracy_score(y_test, ypred)
     precision = precision_score(y_test, ypred, average=None)

@@ -57,12 +57,12 @@ def runSVMClassifier():
 
     from sklearn.model_selection import train_test_split
 
-    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.01, random_state=421)
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.1, random_state=121)
 
     from sklearn.ensemble import RandomForestRegressor
 
     # Create the model
-    model = svm.SVC(kernel='linear')
+    model = svm.SVC(kernel='rbf', max_iter=3000)
     print("DONE")
 
 

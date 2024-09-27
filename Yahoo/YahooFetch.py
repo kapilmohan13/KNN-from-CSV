@@ -21,7 +21,7 @@ print(sharpe_ratio)
 stock_financials.update({"sharpe_ratio": sharpe_ratio})
 
 
-# Pull EPS and calclate P/E ratio
+# Pull EPS and calculate P/E ratio
 stock_info = yf.Ticker(ticker).info
 price = stock_info["currentPrice"]
 EPS = stock_info["trailingEps"]

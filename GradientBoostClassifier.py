@@ -53,7 +53,7 @@ def runGradientBoostClassifier():
 
     from sklearn.ensemble import GradientBoostingClassifier
     # Create the model
-    model = GradientBoostingClassifier(n_estimators=2000, learning_rate=0.02, max_depth=3, verbose=1, random_state=121)
+    model = GradientBoostingClassifier(n_estimators=400, learning_rate=0.3, max_depth=1, verbose=1, random_state=121)
 
     # Train the model
     model.fit(X_train, y_train)
@@ -68,7 +68,6 @@ def runGradientBoostClassifier():
         pickle.dump(model, f)
     print("done.")
 
-    y_pred = model.predict(X_test)
 
     from sklearn.metrics import (
         accuracy_score,
