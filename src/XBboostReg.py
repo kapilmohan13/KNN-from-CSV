@@ -12,7 +12,7 @@ from sklearn.metrics import mean_squared_error as MSE
 dataset = pd.read_csv("../data//indicators.csv")
 X, y = dataset.iloc[:, 2:17], dataset.iloc[:, 17]
 
-# Splitting
+# Splittingt
 train_X, test_X, train_y, test_y = train_test_split(X, y,
                                                     test_size=0.1, random_state=123)
 
@@ -27,14 +27,36 @@ param = {"booster": "gblinear", "objective": "reg:linear"}
 xgb_r = xg.train(params=param, dtrain=train_dmatrix, num_boost_round=100000)
 
 print("Saving model..")
-filename = "..//models//" + "XGboostRegression.sav"
+filename = "..//models//" + "XGboostReg.sav"
 with open(filename, 'wb') as f:
     pickle.dump(xgb_r, f)
 print("done")
 
 pred = xgb_r.predict(test_dmatrix)
 
-# RMSE Computation
+# RMSE Com
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+# putation
 rmse = np.sqrt(MSE(test_y, pred))
 print("RMSE : % f" % (rmse))
 
