@@ -122,6 +122,20 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="\data\GOLDBEES.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="\data\GOLDBEES_SMALL.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="\data\NSE_tickers.csv">
           <value>
             <Attribute>
@@ -137,6 +151,13 @@
           </value>
         </entry>
         <entry key="\data\SP_500_tickers.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
+        <entry key="\data\options.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />
