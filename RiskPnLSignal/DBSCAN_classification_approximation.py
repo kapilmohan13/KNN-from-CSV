@@ -10,7 +10,9 @@ from sklearn.preprocessing import StandardScaler
 #               [8, 7], [8, 8], [25, 80],
 #               [1, 1], [7, 8], [25, 79]])
 df = pd.read_csv('..//data//GOLDBEES.csv')
+df['time'] = pd.to_datetime(df['time'], format='%d-%m-%Y %H:%M:%S').dt.time
 data = df[['time', 'intc']]
+
 data.sort_values(by='time', inplace=True)
 data = data[['intc']]
 scaler = StandardScaler()
@@ -20,8 +22,9 @@ X=data
 
 
 # Run DBSCAN
-db = DBSCAN(eps=0.05, min_samples=2).fit(X)
-
+db = DBSCAN(algorithm='auto', eps=3, leaf_size=100, metric='euclidean',
+                metric_params=None, min_samples=2, n_jobs=None, p=None)
+clusters = db.fit_predict(data)
 # Labels from DBSCAN
 labels = db.labels_
 print("DBSCAN labels:", labels)
