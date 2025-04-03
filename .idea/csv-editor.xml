@@ -129,6 +129,13 @@
             </Attribute>
           </value>
         </entry>
+        <entry key="\data\GOLDBEES_2025.csv">
+          <value>
+            <Attribute>
+              <option name="separator" value="," />
+            </Attribute>
+          </value>
+        </entry>
         <entry key="\data\GOLDBEES_SMALL.csv">
           <value>
             <Attribute>
