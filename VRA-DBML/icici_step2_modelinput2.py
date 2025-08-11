@@ -313,14 +313,14 @@ if __name__ == "__main__":
         print("=== Training DBSCAN Model ===")
         # Adjust these parameters based on your data characteristics
         trained_model = train_model_from_csv(
-            csv_path='icici_model_validation_input1.csv',  # Replace with your training file path
-            eps=0.5,  # Adjust based on your data scale and clustering needs
+            csv_path='train.csv',  # Replace with your training file path
+            eps=0.3,  # Adjust based on your data scale and clustering needs
             min_samples=5  # Minimum samples to form a cluster
         )
         print("Training completed successfully!")
 
     except FileNotFoundError:
-        print("Training file not found. Please ensure 'training_data.csv' exists.")
+        print("Training file not found. Please ensure 'stock_data_with_indicators.csv' exists.")
     except Exception as e:
         print(f"Training error: {e}")
 
@@ -328,7 +328,7 @@ if __name__ == "__main__":
     try:
         print("\n=== Testing Model and Assessing Risk ===")
         results = test_and_assess_risk(
-            test_csv_path='test_data.csv',  # Replace with your test file path
+            test_csv_path='valtest.csv',  # Replace with your test file path
             output_csv_path='risk_assessment_results.csv'
         )
         print("Risk assessment completed successfully!")
@@ -384,5 +384,5 @@ if __name__ == "__main__":
         return df
 
     # Uncomment to generate sample data for testing
-    generate_sample_data('icici_model_validation_input1.csv', 2000)
-    generate_sample_data('test_data.csv', 500)
+    # generate_sample_data('stock_data_with_indicators_model_validation.csv', 2000)
+    # generate_sample_data('test_data.csv', 500)

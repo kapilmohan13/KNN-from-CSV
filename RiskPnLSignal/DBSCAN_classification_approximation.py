@@ -84,3 +84,14 @@ cluster_predictions = knn.predict(data)
 print(cluster_predictions)
 # # Predict using SVM
 # print("SVM Cluster Prediction:", svm.predict(new_point))
+
+unique_elements, counts = np.unique(cluster_predictions, return_counts=True)
+
+# Compute the average of the counts
+average_count = np.mean(counts)
+
+# Output the results
+print("Unique elements:", unique_elements)
+print("Counts:", counts)
+print("Average of counts:", average_count)
+
