@@ -164,7 +164,7 @@ class LSTMVolatilityPredictor:
             Dropout(0.2),
             LSTM(self.lstm_units, return_sequences=False),
             Dropout(0.2),
-            Dense(25, activation='relu'),
+            Dense(16, activation='relu'),
             Dense(1, activation='linear')  # Regression output
         ])
 

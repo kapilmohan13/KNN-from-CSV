@@ -116,7 +116,7 @@ class LSTMVolatilityPredictor:
 
         # Scale down 'v' before scaling all features
         df_features = df[self.feature_columns].copy()
-        df_features['v'] = df_features['v'] * 0.1  # Reduce weightage of 'v'
+        df_features['v'] = df_features['v'] * 0.4  # Reduce weightage of 'v'
 
         # Extract features and target
         
