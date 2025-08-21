@@ -1,1 +1,6 @@
 models/RandomForest_model.sav
+*.pkl
+*.log
+*.sav
+*.h5
+*.keras
