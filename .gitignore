@@ -4,3 +4,17 @@ models/RandomForest_model.sav
 *.sav
 *.h5
 *.keras
+1VRA/backend/__pycache__/indicators.cpython-312.pyc
+1VRA/backend/__pycache__/indicators.cpython-313.pyc
+1VRA/backend/__pycache__/labelling.cpython-313.pyc
+1VRA/backend/__pycache__/main.cpython-312.pyc
+1VRA/backend/__pycache__/main.cpython-313.pyc
+1VRA/data/20260214_185407_icicibank.csv
+1VRA/data/20260215_121256_icicibank.csv
+1VRA/data/hdfcbank.csv
+1VRA/data/icicibank.csv
+1VRA/data/LBL_VOL_PROCESSED_20260215_121256_icicibank.csv
+1VRA/data/PROCESSED_20260214_185407_icicibank.csv
+1VRA/data/PROCESSED_20260215_121256_icicibank.csv
+1VRA/data/VOL_PROCESSED_20260214_185407_icicibank.csv
+1VRA/data/VOL_PROCESSED_20260215_121256_icicibank.csv

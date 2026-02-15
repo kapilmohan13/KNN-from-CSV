@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volatility Risk Analyzer (VRA)</title>
+    <link rel="stylesheet" href="style.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <h2>VRA System</h2>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-tab="indicators">Indicators Calculator</li>
+                <li data-tab="volatility">Volatility Calculator</li>
+                <li class="disabled">Risk Analysis (Coming Soon)</li>
+                <li class="disabled">Backtesting (Coming Soon)</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Indicators Tab -->
+            <div id="indicators" class="tab-content active">
+                <header class="tab-header">
+                    <h1>Indicators Calculator</h1>
+                    <p>Process historical data to generate technical indicators.</p>
+                </header>
+
+                <div class="card upload-section">
+                    <h3>1. Datasets</h3>
+                    <div class="file-upload-container">
+                        <label for="csvFile" class="file-drop-zone">
+                            <span class="icon">📂</span>
+                            <span class="text">Click to select CSV file</span>
+                            <span class="subtext" id="fileName">No file selected</span>
+                        </label>
+                        <input type="file" id="csvFile" accept=".csv" hidden>
+                        <button id="calculateBtn" class="btn primary" disabled>Calculate Indicators</button>
+                    </div>
+                </div>
+
+                <div class="grid-container">
+                    <div class="card log-section">
+                        <h3>2. Server Status & Logs</h3>
+                        <div id="serverLogs" class="log-window">
+                            <div class="log-entry system">Waiting for action...</div>
+                        </div>
+                    </div>
+
+                    <div class="card parameters-section">
+                        <h3>Parameters Used</h3>
+                        <ul class="params-list">
+                            <li><strong>RSI:</strong> 14 periods</li>
+                            <li><strong>Stoch RSI:</strong> 14 periods</li>
+                            <li><strong>MACD:</strong> 12, 26, 9</li>
+                            <li><strong>Moving Average:</strong> 16 periods</li>
+                            <li><strong>ROC:</strong> 10 periods</li>
+                            <li><strong>Williams %R:</strong> 14 periods</li>
+                            <li><strong>VWMA:</strong> 14 periods</li>
+                            <li><strong>Linear Reg MA:</strong> 14 periods</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card preview-section hidden" id="previewCard">
+                    <h3>3. Output Preview</h3>
+                    <div class="output-info">
+                        <strong>Saved to:</strong> <span id="outputPath" class="highlight-path">...</span>
+                        <button class="btn small" onclick="copyPath('outputPath')">Copy Path</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="previewTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Volatility Tab -->
+            <div id="volatility" class="tab-content hidden">
+                <header class="tab-header">
+                    <h1>Volatility Calculator</h1>
+                    <p>Compute historical volatility (Log Returns Std Dev) for risk analysis.</p>
+                </header>
+
+                <div class="card">
+                    <h3>1. Input Data & Volatility Calculation</h3>
+                    <div class="file-upload-container">
+                        <div class="input-group">
+                            <label>File Path (Previous Output Preselected)</label>
+                            <div class="row">
+                                <input type="text" id="volInputPath" class="input-text"
+                                    placeholder="Path to processed CSV...">
+                                <label for="volCsvFile" class="btn small">Browse</label>
+                                <input type="file" id="volCsvFile" accept=".csv" hidden>
+                            </div>
+                        </div>
+                        <div class="input-group">
+                            <label>Window Size (Periods)</label>
+                            <input type="number" id="volWindow" class="input-number" value="21" min="2">
+                        </div>
+                        <button id="computeVolBtn" class="btn primary">Compute Volatility</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>2. Label Addition</h3>
+                    <div class="label-section">
+                        <div class="input-group">
+                            <label>Labelling Strategy</label>
+                            <select id="labelStrategy" class="input-select">
+                                <option value="relative_thresholds">Relative Thresholds (Percentile Based)</option>
+                                <option value="future_strategy" disabled>Future Strategy (Coming Soon)</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Strategy Description</label>
+                            <textarea id="labelDesc" class="desc-box" readonly>Compare each row’s volatility to the historical distribution (entire file).
+Low risk = Vol < 33rd percentile
+Medium risk = 33rd - 66th percentile
+High risk = > 66th percentile</textarea>
+                        </div>
+                        <button id="labelBtn" class="btn primary">Start Labelling</button>
+                    </div>
+                </div>
+
+                <div class="grid-container">
+                    <div class="card log-section">
+                        <h3>3. Server Status & Logs</h3>
+                        <div id="volServerLogs" class="log-window">
+                            <div class="log-entry system">Waiting for action...</div>
+                        </div>
+                    </div>
+
+                    <div class="card parameters-section">
+                        <h3>Parameters Used</h3>
+                        <ul class="params-list" id="volParamsList">
+                            <li>Waiting for computation...</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card preview-section hidden" id="volPreviewCard">
+                    <h3>4. Output Preview</h3>
+                    <div class="output-info">
+                        <strong>Saved to:</strong> <span id="volOutputPath" class="highlight-path">...</span>
+                        <button class="btn small" onclick="copyPath('volOutputPath')">Copy Path</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="volPreviewTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+
+</html>
