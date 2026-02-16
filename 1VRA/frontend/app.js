@@ -21,9 +21,24 @@ const volParamsList = document.getElementById('volParamsList');
 const labelStrategy = document.getElementById('labelStrategy');
 const labelDesc = document.getElementById('labelDesc');
 const labelBtn = document.getElementById('labelBtn');
+// Clustering Elements
+const clusterInputPath = document.getElementById('clusterInputPath');
+const clusterCsvFile = document.getElementById('clusterCsvFile');
+const paramN = document.getElementById('paramN');
+const paramK = document.getElementById('paramK');
+const clusterBtn = document.getElementById('clusterBtn');
+const clusterServerLogs = document.getElementById('clusterServerLogs');
+const clusterResultsList = document.getElementById('clusterResultsList');
+const clusterPreviewCard = document.getElementById('clusterPreviewCard');
+const clusterPreviewTable = document.getElementById('clusterPreviewTable');
+const clusterOutputPath = document.getElementById('clusterOutputPath');
+const elbowChartCard = document.getElementById('elbowChartCard');
+const elbowChartCanvas = document.getElementById('elbowChart');
 
 let pollingInterval = null;
 let selectedVolFile = null;
+let selectedClusterFile = null;
+let elbowChart = null;  // Chart.js instance
 
 // File Selection
 fileInput.addEventListener('change', (e) => {
@@ -58,6 +73,11 @@ document.querySelectorAll('.nav-links li').forEach(li => {
             // Auto-fill path from previous step if available and input is empty
             if (outputPathDisplay.textContent !== '...' && !volInputPath.value) {
                 volInputPath.value = outputPathDisplay.textContent;
+            }
+        } else if (tabId === 'clustering') {
+            // Auto-fill from Volatility/Label output
+            if (volOutputPath.textContent !== '...' && !clusterInputPath.value) {
+                clusterInputPath.value = volOutputPath.textContent;
             }
         }
     });
@@ -312,6 +332,120 @@ labelBtn.addEventListener('click', async () => {
     }
 });
 
+// Clustering Logic
+clusterBtn.addEventListener('click', async () => {
+    let filePath = clusterInputPath.value;
+    const n = paramN.value;
+    const k = paramK.value;
+
+    // Check for file upload logic (similar to previously implemented)
+    if (selectedClusterFile) {
+        // Upload flow ... can reuse logic? 
+        // For simplicity: duplicate flow or just warn if not implemented?
+        // Let's implement quick upload flow.
+        addLog(clusterServerLogs, 'info', 'Uploading clustering file...');
+        const formData = new FormData();
+        formData.append('file', selectedClusterFile);
+        try {
+            const upResp = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+            if (!upResp.ok) throw new Error('Upload failed');
+            // Wait for processing...
+            addLog(clusterServerLogs, 'info', 'Processing features (indicators)...');
+            await pollGenericForCompletion();
+            // Get path
+            const s = await (await fetch(`${API_URL}/status`)).json();
+            filePath = s.output_file;
+            selectedClusterFile = null;
+        } catch (e) {
+            addLog(clusterServerLogs, 'error', 'Upload failed: ' + e.message);
+            return;
+        }
+    } else if (!filePath || filePath === '...') {
+        // Fallback
+        filePath = volOutputPath.textContent;
+        if (!filePath || filePath === '...') {
+            addLog(clusterServerLogs, 'error', 'No input file specified.');
+            return;
+        }
+    }
+
+    if (filePath.startsWith('[Upload]')) {
+        // Didnt finish upload logic above? 
+        // Should happen inside selectedClusterFile check.
+    }
+
+    // Reset UI
+    clusterBtn.disabled = true;
+    clusterBtn.textContent = 'Clustering...';
+    clusterPreviewCard.classList.add('hidden');
+    elbowChartCard.classList.add('hidden');
+    clusterServerLogs.innerHTML = '';
+
+    addLog(clusterServerLogs, 'system', `Starting Clustering (n=${n}, k=${k}) on ${filePath}...`);
+
+    try {
+        const url = new URL(`${API_URL}/train-dbscan`);
+        url.searchParams.append('file_path', filePath);
+        url.searchParams.append('n', n);
+        url.searchParams.append('k', k);
+
+        const resp = await fetch(url, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Request failed');
+        }
+
+        startClusterPolling();
+
+    } catch (error) {
+        addLog(clusterServerLogs, 'error', `Error: ${error.message}`);
+        clusterBtn.disabled = false;
+        clusterBtn.textContent = 'Run Clustering';
+    }
+});
+
+// Modified addLog to accept target container
+function addLog(container, type, message) {
+    // legacy support if first arg is string (old calls)
+    if (typeof container === 'string') {
+        message = type;
+        type = container;
+        container = serverLogs;
+    }
+
+    // Safety check for container
+    if (!container) return;
+
+    const div = document.createElement('div');
+    div.className = `log-entry ${type}`;
+    div.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+}
+
+// Helper: Generic Poller Promise
+function pollGenericForCompletion() {
+    return new Promise((resolve, reject) => {
+        const interval = setInterval(async () => {
+            try {
+                const r = await fetch(`${API_URL}/status`);
+                const s = await r.json();
+                if (s.status === 'completed') {
+                    clearInterval(interval);
+                    resolve(s);
+                } else if (s.status === 'error') {
+                    clearInterval(interval);
+                    reject(new Error(s.message));
+                }
+            } catch (e) {
+                clearInterval(interval);
+                reject(e);
+            }
+        }, 1000);
+    });
+}
+
+// Label Polling
 function startLabelPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
 
@@ -326,7 +460,6 @@ function startLabelPolling() {
                 let type = 'info';
                 if (detail.includes('Error')) type = 'error';
                 else if (detail.includes('Complete')) type = 'success';
-
                 const div = document.createElement('div');
                 div.className = `log-entry ${type}`;
                 div.textContent = detail;
@@ -354,32 +487,64 @@ function startLabelPolling() {
                 labelBtn.textContent = 'Retry';
                 addLog(volServerLogs, 'error', 'Stopped due to error.');
             }
-
-        } catch (error) {
-            console.error('Polling error:', error);
-        }
+        } catch (error) { console.error(error); }
     }, 1000);
 }
-// Modified addLog to accept target container
-function addLog(container, type, message) {
-    // legacy support if first arg is string (old calls)
-    if (typeof container === 'string') {
-        message = type;
-        type = container;
-        container = serverLogs;
-    }
 
-    // Safety check for container
-    if (!container) return;
+// Cluster Polling
+function startClusterPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
 
-    const div = document.createElement('div');
-    div.className = `log-entry ${type}`;
-    div.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
+    pollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_URL}/status`);
+            const status = await response.json();
+
+            clusterServerLogs.innerHTML = '';
+            addLog(clusterServerLogs, 'info', `Status: ${status.status}`);
+            status.details.forEach(detail => {
+                let type = 'info';
+                if (detail.includes('Error')) type = 'error';
+                else if (detail.includes('Complete')) type = 'success';
+                const div = document.createElement('div');
+                div.className = `log-entry ${type}`;
+                div.textContent = detail;
+                clusterServerLogs.appendChild(div);
+            });
+            clusterServerLogs.scrollTop = clusterServerLogs.scrollHeight;
+
+            if (status.status === 'completed') {
+                clearInterval(pollingInterval);
+                clusterBtn.disabled = false;
+                clusterBtn.textContent = 'Run Clustering';
+                addLog(clusterServerLogs, 'success', 'Clustering Finished!');
+                clusterOutputPath.textContent = status.output_file;
+
+                // Show params update
+                clusterResultsList.innerHTML = `
+                    <li><strong>Min Samples (n):</strong> ${paramN.value}</li>
+                    <li><strong>Neighbors (k):</strong> ${paramK.value}</li>
+                    <li><strong>Output:</strong> ${status.output_file}</li>
+                `;
+
+                // Render K-Distance Graph if available
+                if (status.k_distances && status.optimal_eps) {
+                    renderElbowChart(status.k_distances, status.optimal_eps);
+                    elbowChartCard.classList.remove('hidden');
+                }
+
+                loadPreview(clusterPreviewTable, clusterPreviewCard, true);
+            } else if (status.status === 'error') {
+                clearInterval(pollingInterval);
+                clusterBtn.disabled = false;
+                clusterBtn.textContent = 'Retry';
+                addLog(clusterServerLogs, 'error', 'Stopped due to error.');
+            }
+        } catch (error) { console.error(error); }
+    }, 1000);
 }
 
-// Polling for Volatility
+// Volatility Polling
 function startVolPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
 
@@ -394,7 +559,6 @@ function startVolPolling() {
                 let type = 'info';
                 if (detail.includes('Error')) type = 'error';
                 else if (detail.includes('Complete')) type = 'success';
-
                 const div = document.createElement('div');
                 div.className = `log-entry ${type}`;
                 div.textContent = detail;
@@ -408,10 +572,7 @@ function startVolPolling() {
                 computeVolBtn.textContent = 'Compute Volatility';
                 addLog(volServerLogs, 'success', 'Computation Finished!');
                 volOutputPath.textContent = status.output_file;
-
-                // Show params
                 volParamsList.innerHTML = `<li><strong>Window Size:</strong> ${volWindowInput.value}</li>`;
-
                 loadPreview(volPreviewTable, volPreviewCard, true);
             } else if (status.status === 'error') {
                 clearInterval(pollingInterval);
@@ -419,13 +580,11 @@ function startVolPolling() {
                 computeVolBtn.textContent = 'Retry';
                 addLog(volServerLogs, 'error', 'Stopped due to error.');
             }
-
-        } catch (error) {
-            console.error('Polling error:', error);
-        }
+        } catch (error) { console.error(error); }
     }, 1000);
 }
 
+// Default Polling (Indicators)
 function startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
 
@@ -524,6 +683,104 @@ async function loadPreview(tableEl, cardEl, isVol) {
     } catch (error) {
         console.error(error);
     }
+}
+
+
+function renderElbowChart(kDistances, optimalEps) {
+    // Destroy existing chart if it exists
+    if (elbowChart) {
+        elbowChart.destroy();
+    }
+
+    const ctx = elbowChartCanvas.getContext('2d');
+
+    // Find index where eps is closest to optimal
+    let elbowIndex = 0;
+    let minDiff = Math.abs(kDistances[0] - optimalEps);
+    for (let i = 0; i < kDistances.length; i++) {
+        const diff = Math.abs(kDistances[i] - optimalEps);
+        if (diff < minDiff) {
+            minDiff = diff;
+            elbowIndex = i;
+        }
+    }
+
+    elbowChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: Array.from({ length: kDistances.length }, (_, i) => i),
+            datasets: [
+                {
+                    label: 'K-Distance',
+                    data: kDistances,
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    fill: true
+                },
+                {
+                    label: `Elbow Point (ε=${optimalEps.toFixed(4)})`,
+                    data: [{ x: elbowIndex, y: optimalEps }],
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    backgroundColor: 'rgba(255, 99, 132, 1)',
+                    pointRadius: 8,
+                    pointHoverRadius: 10,
+                    showLine: false
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'K-Distance Graph - Elbow Method for Epsilon Selection',
+                    font: { size: 14 }
+                },
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        title: (items) => `Point: ${items[0].label}`,
+                        label: (item) => `Distance: ${item.parsed.y.toFixed(4)}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Points (sorted by k-distance)'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'K-Distance'
+                    },
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                }
+            },
+            interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+            }
+        }
+    });
 }
 
 function copyPath(elementId) {

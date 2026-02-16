@@ -10,7 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from pathlib import Path
 from indicators import TechnicalIndicators
+from indicators import TechnicalIndicators
 from labelling import RiskLabeller
+from clustering import ClusteringModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -342,6 +344,112 @@ async def apply_labels(
     background_tasks.add_task(process_labeling_task, file_path_obj, output_path, strategy)
     
     return {"message": "Labeling started", "output_path": str(output_path)}
+
+
+def process_clustering_task(file_path: Path, output_path: Path, n: int, k: int):
+    try:
+        update_status("processing", "Starting Clustering", f"Loading {file_path}...")
+        
+        cluster_model = ClusteringModel()
+        
+        # Load & Preprocess
+        try:
+            df, X_scaled, features = cluster_model.load_and_preprocess(file_path)
+            update_status("processing", "Data Loaded", f"Features: {len(features)} selected.")
+        except Exception as e:
+            update_status("error", "Preprocessing Failed", str(e))
+            return
+
+        # Find Optimal Eps (Elbow Method)
+        update_status("processing", "Tuning Parameters", f"Calculating K-Distance (k={k})...")
+        try:
+            optimal_eps, k_distances = cluster_model.find_optimal_eps(X_scaled, k=k)
+            # Store for visualization
+            processing_status["k_distances"] = k_distances.tolist()[:500]  # Limit to 500 points for performance
+            processing_status["optimal_eps"] = float(optimal_eps)
+            # Log finding
+            update_status("processing", "Optimal Eps Found", f"Elbow at eps={optimal_eps:.4f}")
+        except Exception as e:
+            update_status("error", "Tuning Failed", str(e))
+            return 
+            
+        # Run DBSCAN
+        update_status("processing", "Running DBSCAN", f"Eps={optimal_eps:.4f}, Min_Samples={n}...")
+        try:
+            labels, n_clusters, sil_score = cluster_model.train_dbscan(X_scaled, optimal_eps, n)
+            
+            # Analyze Cluster Sizes
+            unique, counts = np.unique(labels, return_counts=True)
+            dist_str = ", ".join([f"{u}: {c}" for u, c in zip(unique, counts)])
+            
+            update_status("processing", "Clustering Complete", 
+                          f"Clusters: {n_clusters}, Noise: {list(labels).count(-1)}. Score: {sil_score:.4f}")
+        except Exception as e:
+             update_status("error", "DBSCAN Failed", str(e))
+             return
+
+        # Save Results
+        df['Cluster'] = labels
+        df.to_csv(output_path, index=False)
+        
+        # Save Model
+        models_dir = Path("models").resolve()
+        if not models_dir.exists():
+            models_dir.mkdir(exist_ok=True)
+            
+        base_name = file_path.stem
+        # Ensure unique model name with timestamp?
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_base = f"{base_name}_{timestamp}"
+        
+        scaler_path, model_path = cluster_model.save_model(models_dir, model_base)
+        
+        # Log Final Success
+        processing_status["output_file"] = str(output_path)
+        img_url = "" # Could generate plot image path here if we had plotting
+        
+        msg = f"Clustering Done. Found {n_clusters} clusters (eps={optimal_eps:.2f}). Saved to {output_path} and models/{model_base}..."
+        update_status("completed", "Processing Complete", msg)
+
+    except Exception as e:
+        update_status("error", "Unexpected Error", f"Critical error: {str(e)}")
+        logger.error(e, exc_info=True)
+
+
+@app.post("/train-dbscan")
+async def train_dbscan(
+    file_path: str = None, 
+    n: int = 100, 
+    k: int = 3, 
+    background_tasks: BackgroundTasks = None
+):
+    if not file_path:
+        if processing_status["output_file"]:
+            file_path = processing_status["output_file"]
+        else:
+            raise HTTPException(status_code=400, detail="No file selected.")
+            
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    # Output Filename: CLUSTER_LBL_...
+    base_name = file_path_obj.name
+    if not base_name.startswith("CLUSTER_"):
+        output_filename = f"CLUSTER_{base_name}"
+    else:
+        output_filename = base_name
+        
+    output_path = DATA_DIR / output_filename
+    
+    # Reset status
+    processing_status["status"] = "starting"
+    processing_status["details"] = []
+    processing_status["message"] = "Clustering Queued"
+    
+    background_tasks.add_task(process_clustering_task, file_path_obj, output_path, n, k)
+    
+    return {"message": "Clustering started", "output_path": str(output_path)}
 
 
 @app.get("/status")

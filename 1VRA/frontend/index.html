@@ -9,6 +9,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -20,7 +21,8 @@
             </div>
             <ul class="nav-links">
                 <li class="active" data-tab="indicators">Indicators Calculator</li>
-                <li data-tab="volatility">Volatility Calculator</li>
+                <li data-tab="volatility">2. Volatility & Labels</li>
+                <li data-tab="clustering">3. DBSCAN Clustering</li>
                 <li class="disabled">Risk Analysis (Coming Soon)</li>
                 <li class="disabled">Backtesting (Coming Soon)</li>
             </ul>
@@ -158,6 +160,82 @@ High risk = > 66th percentile</textarea>
                     </div>
                     <div class="table-wrapper">
                         <table id="volPreviewTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <!-- Clustering Tab -->
+            <div id="clustering" class="tab-content hidden">
+                <header class="tab-header">
+                    <h1>DBSCAN Clustering</h1>
+                    <p>Detect clusters and regime changes using Density-Based Clustering.</p>
+                </header>
+
+                <div class="card">
+                    <h3>1. Configuration</h3>
+                    <div class="file-upload-container">
+                        <div class="input-group">
+                            <label>Input File (Labeled Data)</label>
+                            <div class="row">
+                                <input type="text" id="clusterInputPath" class="input-text"
+                                    placeholder="Path to LBL_VOL_... file">
+                                <label for="clusterCsvFile" class="btn small">Browse</label>
+                                <input type="file" id="clusterCsvFile" accept=".csv" hidden>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="input-group">
+                                <label>Min Samples (n)</label>
+                                <input type="number" id="paramN" class="input-number" value="100" min="2">
+                            </div>
+                            <div class="input-group">
+                                <label>K-Neighbors (k)</label>
+                                <input type="number" id="paramK" class="input-number" value="3" min="2">
+                            </div>
+                            <div class="input-group" style="flex:1">
+                                <label>Features</label>
+                                <input type="text" class="input-text" value="All Numeric (excl. dates, stats)" disabled
+                                    style="opacity:0.75">
+                            </div>
+                        </div>
+
+                        <button id="clusterBtn" class="btn primary">Run Clustering</button>
+                    </div>
+                </div>
+
+                <div class="grid-container">
+                    <div class="card log-section">
+                        <h3>2. Clustering Logs</h3>
+                        <div id="clusterServerLogs" class="log-window">
+                            <div class="log-entry system">Ready to cluster.</div>
+                        </div>
+                    </div>
+
+                    <div class="card parameters-section">
+                        <h3>Results Summary</h3>
+                        <ul class="params-list" id="clusterResultsList">
+                            <li>Waiting for run...</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card hidden" id="elbowChartCard" style="margin-top: 1rem;">
+                    <h3>K-Distance Graph (Elbow Method)</h3>
+                    <div style="position: relative; height: 400px;">
+                        <canvas id="elbowChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card preview-section hidden" id="clusterPreviewCard">
+                    <h3>3. Output Preview</h3>
+                    <div class="output-info">
+                        <strong>Saved to:</strong> <span id="clusterOutputPath" class="highlight-path">...</span>
+                        <button class="btn small" onclick="copyPath('clusterOutputPath')">Copy Path</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="clusterPreviewTable">
                             <thead></thead>
                             <tbody></tbody>
                         </table>
