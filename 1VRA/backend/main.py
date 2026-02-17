@@ -33,6 +33,8 @@ app.add_middleware(
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+MODELS_DIR = BASE_DIR / "models"
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Global status tracker (simple in-memory for this single-user app)
 processing_status = {
@@ -393,16 +395,14 @@ def process_clustering_task(file_path: Path, output_path: Path, n: int, k: int):
         df.to_csv(output_path, index=False)
         
         # Save Model
-        models_dir = Path("models").resolve()
-        if not models_dir.exists():
-            models_dir.mkdir(exist_ok=True)
+        models_dir = MODELS_DIR
             
         base_name = file_path.stem
         # Ensure unique model name with timestamp?
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         model_base = f"{base_name}_{timestamp}"
         
-        scaler_path, model_path = cluster_model.save_model(models_dir, model_base)
+        scaler_path, model_path = cluster_model.save_model(models_dir, model_base, algorithm='dbscan')
         
         # Log Final Success
         processing_status["output_file"] = str(output_path)
@@ -450,6 +450,122 @@ async def train_dbscan(
     background_tasks.add_task(process_clustering_task, file_path_obj, output_path, n, k)
     
     return {"message": "Clustering started", "output_path": str(output_path)}
+
+
+@app.post("/train-kmeans")
+async def train_kmeans(
+    file_path: str = None, 
+    k: str = "auto",  # Can be 'auto' or a number
+    k_min: int = 2,
+    k_max: int = 10,
+    background_tasks: BackgroundTasks = None
+):
+    if not file_path:
+        if processing_status["output_file"]:
+            file_path = processing_status["output_file"]
+        else:
+            raise HTTPException(status_code=400, detail="No file selected.")
+            
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+    # Output Filename: CLUSTER_LBL_...
+    base_name = file_path_obj.name
+    if not base_name.startswith("CLUSTER_"):
+        output_filename = f"CLUSTER_{base_name}"
+    else:
+        output_filename = base_name
+        
+    output_path = DATA_DIR / output_filename
+    
+    # Parse K value
+    if k == "auto" or k == "":
+        k_value = None  # Will use elbow method
+    else:
+        try:
+            k_value = int(k)
+        except:
+            k_value = None
+    
+    # Reset status
+    processing_status["status"] = "starting"
+    processing_status["details"] = []
+    processing_status["message"] = "K-Means Clustering Queued"
+    
+    background_tasks.add_task(process_kmeans_task, file_path_obj, output_path, k_value, k_min, k_max)
+    
+    return {"message": "K-Means clustering started", "output_path": str(output_path)}
+
+
+def process_kmeans_task(file_path: Path, output_path: Path, k_clusters: int, k_min: int, k_max: int):
+    try:
+        update_status("processing", "Starting K-Means Clustering", f"Loading {file_path}...")
+        
+        cluster_model = ClusteringModel()
+        
+        # Load & Preprocess
+        try:
+            df, X_scaled, features = cluster_model.load_and_preprocess(file_path)
+            update_status("processing", "Data Loaded", f"Features: {len(features)} selected.")
+        except Exception as e:
+            update_status("error", "Preprocessing Failed", str(e))
+            return
+
+        # Determine optimal K if not provided
+        if k_clusters is None:
+            update_status("processing", "Finding Optimal K", f"Testing K range {k_min}-{k_max}...")
+            try:
+                optimal_k, inertias, sil_scores, k_range = cluster_model.find_optimal_k_kmeans(X_scaled, k_min, k_max)
+                # Store for visualization
+                processing_status["inertias"] = inertias
+                processing_status["silhouette_scores"] = sil_scores
+                processing_status["k_range"] = k_range
+                processing_status["optimal_k"] = int(optimal_k)
+                k_clusters = optimal_k
+                update_status("processing", "Optimal K Found", f"Elbow at K={k_clusters}")
+            except Exception as e:
+                update_status("error", "K Finding Failed", str(e))
+                return
+        else:
+            update_status("processing", "Using Specified K", f"K={k_clusters}")
+            
+        # Run K-Means
+        update_status("processing", "Running K-Means", f"K={k_clusters}...")
+        try:
+            labels, n_clusters, sil_score, inertia = cluster_model.train_kmeans(X_scaled, k_clusters)
+            
+            # Analyze Cluster Sizes
+            unique, counts = np.unique(labels, return_counts=True)
+            dist_str = ", ".join([f"{u}: {c}" for u, c in zip(unique, counts)])
+            
+            update_status("processing", "Clustering Complete", 
+                          f"Clusters: {n_clusters}, Inertia: {inertia:.2f}, Score: {sil_score:.4f}")
+        except Exception as e:
+             update_status("error", "K-Means Failed", str(e))
+             return
+
+        # Save Results
+        df['Cluster'] = labels
+        df.to_csv(output_path, index=False)
+        
+        update_status("processing", "Saving Models", "Persisting trained model...")
+        try:
+            model_base = output_path.stem
+            scaler_path, model_path = cluster_model.save_model(MODELS_DIR, model_base, algorithm='kmeans')
+            update_status("success", "K-Means Clustering Complete", 
+                          f"Results saved. Models: {model_base}")
+        except Exception as e:
+            update_status("error", "Model Save Failed", str(e))
+            return
+        
+        processing_status["output_file"] = str(output_path)
+        processing_status["status"] = "completed"
+        processing_status["message"] = f"K-Means Done. Found {n_clusters} clusters. Saved to {output_path}"
+        
+    except Exception as e:
+        update_status("error", "Unexpected Error", f"Critical error: {str(e)}")
+        logger.error(e, exc_info=True)
 
 
 @app.get("/status")

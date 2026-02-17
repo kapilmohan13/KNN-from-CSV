@@ -169,23 +169,32 @@ High risk = > 66th percentile</textarea>
             <!-- Clustering Tab -->
             <div id="clustering" class="tab-content hidden">
                 <header class="tab-header">
-                    <h1>DBSCAN Clustering</h1>
-                    <p>Detect clusters and regime changes using Density-Based Clustering.</p>
+                    <h1>Clustering</h1>
+                    <p>Detect clusters and regime changes using advanced clustering algorithms.</p>
                 </header>
 
                 <div class="card">
                     <h3>1. Configuration</h3>
                     <div class="file-upload-container">
-                        <div class="input-group">
-                            <label>Input File (Labeled Data)</label>
-                            <div class="row">
-                                <input type="text" id="clusterInputPath" class="input-text"
-                                    placeholder="Path to LBL_VOL_... file">
-                                <label for="clusterCsvFile" class="btn small">Browse</label>
-                                <input type="file" id="clusterCsvFile" accept=".csv" hidden>
+                        <div class="row">
+                            <div class="input-group" style="flex: 1;">
+                                <label>Algorithm</label>
+                                <select id="clusterAlgorithm" class="input-text">
+                                    <option value="dbscan">DBSCAN (Density-Based)</option>
+                                    <option value="kmeans">K-Means</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 2;">
+                                <label>Input File (Labeled Data)</label>
+                                <div class="row">
+                                    <input type="text" id="clusterInputPath" class="input-text"
+                                        placeholder="Path to LBL_VOL_... file">
+                                    <label for="clusterCsvFile" class="btn small">Browse</label>
+                                    <input type="file" id="clusterCsvFile" accept=".csv" hidden>
+                                </div>
                             </div>
                         </div>
-                        <div class="row">
+                        <div class="row" id="dbscanParams">
                             <div class="input-group">
                                 <label>Min Samples (n)</label>
                                 <input type="number" id="paramN" class="input-number" value="100" min="2">
@@ -194,10 +203,22 @@ High risk = > 66th percentile</textarea>
                                 <label>K-Neighbors (k)</label>
                                 <input type="number" id="paramK" class="input-number" value="3" min="2">
                             </div>
-                            <div class="input-group" style="flex:1">
-                                <label>Features</label>
-                                <input type="text" class="input-text" value="All Numeric (excl. dates, stats)" disabled
-                                    style="opacity:0.75">
+                        </div>
+                        <div class="row hidden" id="kmeansParams">
+                            <div class="input-group">
+                                <label>Number of Clusters (K)</label>
+                                <input type="number" id="kmeansK" class="input-number" value="auto" placeholder="auto"
+                                    min="2" max="20">
+                                <small style="color: var(--text-muted); font-size: 0.85em;">Leave as 'auto' for elbow
+                                    method</small>
+                            </div>
+                            <div class="input-group">
+                                <label>K Range (Min)</label>
+                                <input type="number" id="kmeansKMin" class="input-number" value="2" min="2" max="10">
+                            </div>
+                            <div class="input-group">
+                                <label>K Range (Max)</label>
+                                <input type="number" id="kmeansKMax" class="input-number" value="10" min="3" max="20">
                             </div>
                         </div>
 

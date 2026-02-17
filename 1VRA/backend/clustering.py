@@ -2,7 +2,7 @@
 import pandas as pd
 import numpy as np
 import pickle
-from sklearn.cluster import DBSCAN
+from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import NearestNeighbors
 from sklearn.metrics import silhouette_score
@@ -149,16 +149,80 @@ class ClusteringModel:
                 sil_score = -1.0
                 
         return labels, n_clusters, sil_score
+    
+    def find_optimal_k_kmeans(self, X_scaled, k_min: int = 2, k_max: int = 10):
+        """
+        Finds optimal number of clusters (K) for K-Means using the Elbow Method.
+        Returns optimal K and inertia values for visualization.
+        """
+        inertias = []
+        silhouette_scores = []
+        k_range = range(k_min, k_max + 1)
         
-    def save_model(self, output_dir: Path, base_filename: str):
+        for k in k_range:
+            kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+            labels = kmeans.fit_predict(X_scaled)
+            inertias.append(kmeans.inertia_)
+            
+            # Calculate silhouette score
+            if k > 1:
+                try:
+                    score = silhouette_score(X_scaled, labels)
+                    silhouette_scores.append(score)
+                except:
+                    silhouette_scores.append(-1.0)
+            else:
+                silhouette_scores.append(-1.0)
+        
+        # Find elbow using geometric method (same as DBSCAN eps finding)
+        inertias_arr = np.array(inertias)
+        n_points = len(inertias_arr)
+        all_coords = np.vstack((range(n_points), inertias_arr)).T
+        
+        first_point = all_coords[0]
+        line_vec = all_coords[-1] - all_coords[0]
+        line_vec_norm = line_vec / np.sqrt(np.sum(line_vec**2))
+        
+        vec_from_first = all_coords - first_point
+        scalar_prod = np.sum(vec_from_first * line_vec_norm, axis=1)
+        vec_from_first_parallel = np.outer(scalar_prod, line_vec_norm)
+        vec_to_line = vec_from_first - vec_from_first_parallel
+        dist_to_line = np.sqrt(np.sum(vec_to_line ** 2, axis=1))
+        
+        idx_elbow = np.argmax(dist_to_line)
+        optimal_k = k_min + idx_elbow
+        
+        return optimal_k, list(inertias), list(silhouette_scores), list(k_range)
+    
+    def train_kmeans(self, X_scaled, n_clusters, random_state=42):
+        """
+        Trains K-Means model.
+        """
+        self.model = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+        labels = self.model.fit_predict(X_scaled)
+        
+        # Calculate metrics
+        inertia = self.model.inertia_
+        
+        sil_score = -1.0
+        if n_clusters > 1:
+            try:
+                sil_score = silhouette_score(X_scaled, labels)
+            except:
+                sil_score = -1.0
+                
+        return labels, n_clusters, sil_score, inertia
+        
+    def save_model(self, output_dir: Path, base_filename: str, algorithm: str = 'dbscan'):
         """
         Saves the scaler and model using pickle.
+        algorithm: 'dbscan' or 'kmeans'
         """
         if not output_dir.exists():
             output_dir.mkdir(parents=True)
             
         scaler_path = output_dir / f"{base_filename}_scaler.pkl"
-        model_path = output_dir / f"{base_filename}_dbscan.pkl"
+        model_path = output_dir / f"{base_filename}_{algorithm}.pkl"
         
         with open(scaler_path, 'wb') as f:
             pickle.dump(self.scaler, f)

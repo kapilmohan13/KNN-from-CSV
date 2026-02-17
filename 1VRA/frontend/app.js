@@ -34,6 +34,12 @@ const clusterPreviewTable = document.getElementById('clusterPreviewTable');
 const clusterOutputPath = document.getElementById('clusterOutputPath');
 const elbowChartCard = document.getElementById('elbowChartCard');
 const elbowChartCanvas = document.getElementById('elbowChart');
+const clusterAlgorithm = document.getElementById('clusterAlgorithm');
+const dbscanParams = document.getElementById('dbscanParams');
+const kmeansParams = document.getElementById('kmeansParams');
+const kmeansK = document.getElementById('kmeansK');
+const kmeansKMin = document.getElementById('kmeansKMin');
+const kmeansKMax = document.getElementById('kmeansKMax');
 
 let pollingInterval = null;
 let selectedVolFile = null;
@@ -83,12 +89,35 @@ document.querySelectorAll('.nav-links li').forEach(li => {
     });
 });
 
+
+
+// Algorithm Switcher
+clusterAlgorithm.addEventListener('change', () => {
+    const algo = clusterAlgorithm.value;
+    if (algo === 'dbscan') {
+        dbscanParams.classList.remove('hidden');
+        kmeansParams.classList.add('hidden');
+    } else if (algo === 'kmeans') {
+        dbscanParams.classList.add('hidden');
+        kmeansParams.classList.remove('hidden');
+    }
+});
+
 // Volatility File Browse
 volCsvFile.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) {
         selectedVolFile = file;
         volInputPath.value = `[Upload] ${file.name}`;
+    }
+});
+
+// Clustering File Browse
+clusterCsvFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        selectedClusterFile = file;
+        clusterInputPath.value = `[Upload] ${file.name}`;
     }
 });
 
@@ -335,14 +364,10 @@ labelBtn.addEventListener('click', async () => {
 // Clustering Logic
 clusterBtn.addEventListener('click', async () => {
     let filePath = clusterInputPath.value;
-    const n = paramN.value;
-    const k = paramK.value;
+    const algorithm = clusterAlgorithm.value;
 
     // Check for file upload logic (similar to previously implemented)
     if (selectedClusterFile) {
-        // Upload flow ... can reuse logic? 
-        // For simplicity: duplicate flow or just warn if not implemented?
-        // Let's implement quick upload flow.
         addLog(clusterServerLogs, 'info', 'Uploading clustering file...');
         const formData = new FormData();
         formData.append('file', selectedClusterFile);
@@ -381,13 +406,36 @@ clusterBtn.addEventListener('click', async () => {
     elbowChartCard.classList.add('hidden');
     clusterServerLogs.innerHTML = '';
 
-    addLog(clusterServerLogs, 'system', `Starting Clustering (n=${n}, k=${k}) on ${filePath}...`);
-
     try {
-        const url = new URL(`${API_URL}/train-dbscan`);
-        url.searchParams.append('file_path', filePath);
-        url.searchParams.append('n', n);
-        url.searchParams.append('k', k);
+        let url, logMsg;
+
+        if (algorithm === 'dbscan') {
+            const n = paramN.value;
+            const k = paramK.value;
+            logMsg = `Starting DBSCAN (n=${n}, k=${k}) on ${filePath}...`;
+
+            url = new URL(`${API_URL}/train-dbscan`);
+            url.searchParams.append('file_path', filePath);
+            url.searchParams.append('n', n);
+            url.searchParams.append('k', k);
+
+        } else if (algorithm === 'kmeans') {
+            const kVal = kmeansK.value;
+            const kMin = kmeansKMin.value;
+            const kMax = kmeansKMax.value;
+
+            logMsg = kVal === 'auto' || kVal === ''
+                ? `Starting K-Means (auto K, range ${kMin}-${kMax}) on ${filePath}...`
+                : `Starting K-Means (K=${kVal}) on ${filePath}...`;
+
+            url = new URL(`${API_URL}/train-kmeans`);
+            url.searchParams.append('file_path', filePath);
+            url.searchParams.append('k', kVal === 'auto' || kVal === '' ? 'auto' : kVal);
+            url.searchParams.append('k_min', kMin);
+            url.searchParams.append('k_max', kMax);
+        }
+
+        addLog(clusterServerLogs, 'system', logMsg);
 
         const resp = await fetch(url, { method: 'POST' });
         if (!resp.ok) {
