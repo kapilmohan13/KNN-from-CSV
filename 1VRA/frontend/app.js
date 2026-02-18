@@ -839,3 +839,371 @@ function copyPath(elementId) {
         alert('Path copied to clipboard!');
     });
 }
+
+
+// ===================== ML TRAINING TAB =====================
+
+// ML Training Elements
+const mlAlgorithm = document.getElementById('mlAlgorithm');
+const mlValidation = document.getElementById('mlValidation');
+const mlInputPath = document.getElementById('mlInputPath');
+const mlCsvFile = document.getElementById('mlCsvFile');
+const mlWindowSize = document.getElementById('mlWindowSize');
+const mlWindowLabel = document.getElementById('mlWindowLabel');
+const mlWindowHint = document.getElementById('mlWindowHint');
+const mlValidationDesc = document.getElementById('mlValidationDesc');
+const mlTrainBtn = document.getElementById('mlTrainBtn');
+const mlServerLogs = document.getElementById('mlServerLogs');
+const mlMetricsList = document.getElementById('mlMetricsList');
+const mlClassificationCard = document.getElementById('mlClassificationCard');
+const mlClassMetricsList = document.getElementById('mlClassMetricsList');
+const mlConfusionBtn = document.getElementById('mlConfusionBtn');
+const mlFoldsCard = document.getElementById('mlFoldsCard');
+const mlFoldsTable = document.getElementById('mlFoldsTable');
+const mlFilesCard = document.getElementById('mlFilesCard');
+const mlFilesList = document.getElementById('mlFilesList');
+const cmModal = document.getElementById('cmModal');
+const cmModalClose = document.getElementById('cmModalClose');
+const cmBody = document.getElementById('cmBody');
+const cmLegend = document.getElementById('cmLegend');
+
+let selectedMlFile = null;
+
+// Validation Strategy Switcher
+mlValidation.addEventListener('change', () => {
+    const val = mlValidation.value;
+    if (val === 'rolling') {
+        mlWindowLabel.textContent = 'Window Size (segments)';
+        mlWindowSize.value = 6;
+        mlWindowHint.textContent = 'Train on N segments, test on next';
+        mlValidationDesc.value = `Rolling Window: Train on a fixed-size window (e.g., segments 1–6), test on segment 7.\nThen roll forward: train on segments 2–7, test on segment 8, and so on.\nCollects performance metrics across all test windows.`;
+    } else {
+        mlWindowLabel.textContent = 'Initial Window (segments)';
+        mlWindowSize.value = 3;
+        mlWindowHint.textContent = 'Start with N segments, expand each fold';
+        mlValidationDesc.value = `Walk-Forward: Train on an expanding window (start with N segments).\nTest on the next segment. Add that segment to training, retrain, test on the next, and so on.\nCollects performance metrics of prediction across all expanding windows.`;
+    }
+});
+
+// ML File Browse
+mlCsvFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        selectedMlFile = file;
+        mlInputPath.value = `[Upload] ${file.name}`;
+    }
+});
+
+// Tab switching: auto-fill ML input from previous step output
+document.querySelectorAll('.nav-links li').forEach(li => {
+    li.addEventListener('click', () => {
+        const tabId = li.getAttribute('data-tab');
+        if (tabId === 'mltraining') {
+            // Auto-fill from Volatility/Label output
+            if (volOutputPath && volOutputPath.textContent !== '...' && !mlInputPath.value) {
+                mlInputPath.value = volOutputPath.textContent;
+            }
+        }
+    });
+});
+
+// ML Train Button
+mlTrainBtn.addEventListener('click', async () => {
+    let filePath = mlInputPath.value;
+    const algorithm = mlAlgorithm.value;
+    const validationType = mlValidation.value;
+    const windowSize = mlWindowSize.value;
+
+    // Handle file upload if user browsed a file
+    if (selectedMlFile) {
+        addLog(mlServerLogs, 'info', 'Uploading file...');
+        const formData = new FormData();
+        formData.append('file', selectedMlFile);
+        try {
+            const upResp = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+            if (!upResp.ok) throw new Error('Upload failed');
+            addLog(mlServerLogs, 'info', 'Processing base indicators...');
+            await pollGenericForCompletion();
+            const s = await (await fetch(`${API_URL}/status`)).json();
+            filePath = s.output_file;
+            selectedMlFile = null;
+        } catch (e) {
+            addLog(mlServerLogs, 'error', 'Upload failed: ' + e.message);
+            return;
+        }
+    } else if (!filePath || filePath === '...' || filePath === '') {
+        // Fallback to last output
+        if (volOutputPath && volOutputPath.textContent !== '...') {
+            filePath = volOutputPath.textContent;
+        } else {
+            addLog(mlServerLogs, 'error', 'No input file specified. Please browse or paste a file path.');
+            return;
+        }
+    }
+
+    if (filePath.startsWith('[Upload]')) {
+        addLog(mlServerLogs, 'error', 'File upload did not complete. Please retry.');
+        return;
+    }
+
+    // Reset UI
+    mlTrainBtn.disabled = true;
+    mlTrainBtn.textContent = 'Training...';
+    mlClassificationCard.classList.add('hidden');
+    mlFoldsCard.classList.add('hidden');
+    mlFilesCard.classList.add('hidden');
+    mlServerLogs.innerHTML = '';
+    mlMetricsList.innerHTML = '<li>Training in progress...</li>';
+
+    const validationLabel = validationType === 'rolling' ? 'Rolling Window' : 'Walk-Forward';
+    addLog(mlServerLogs, 'system', `Starting ${algorithm} with ${validationLabel} (window=${windowSize}) on ${filePath}...`);
+
+    try {
+        const url = new URL(`${API_URL}/train-ml`);
+        url.searchParams.append('file_path', filePath);
+        url.searchParams.append('algorithm', algorithm);
+        url.searchParams.append('validation_type', validationType);
+        url.searchParams.append('window_size', windowSize);
+
+        const resp = await fetch(url, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Request failed');
+        }
+
+        startMlPolling();
+
+    } catch (error) {
+        addLog(mlServerLogs, 'error', `Error: ${error.message}`);
+        mlTrainBtn.disabled = false;
+        mlTrainBtn.textContent = 'Start Training';
+    }
+});
+
+
+// ML Polling
+function startMlPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+
+    pollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_URL}/status`);
+            const status = await response.json();
+
+            mlServerLogs.innerHTML = '';
+            addLog(mlServerLogs, 'info', `Status: ${status.status}`);
+            status.details.forEach(detail => {
+                let type = 'info';
+                if (detail.includes('Error') || detail.includes('error')) type = 'error';
+                else if (detail.includes('Complete') || detail.includes('Done')) type = 'success';
+                else if (detail.includes('Fold')) type = 'info';
+                const div = document.createElement('div');
+                div.className = `log-entry ${type}`;
+                div.textContent = detail;
+                mlServerLogs.appendChild(div);
+            });
+            mlServerLogs.scrollTop = mlServerLogs.scrollHeight;
+
+            if (status.status === 'completed') {
+                clearInterval(pollingInterval);
+                mlTrainBtn.disabled = false;
+                mlTrainBtn.textContent = 'Start Training';
+                addLog(mlServerLogs, 'success', 'Training Finished!');
+
+                // Load full results
+                loadMlResults();
+
+            } else if (status.status === 'error') {
+                clearInterval(pollingInterval);
+                mlTrainBtn.disabled = false;
+                mlTrainBtn.textContent = 'Retry';
+                addLog(mlServerLogs, 'error', 'Stopped due to error.');
+            }
+        } catch (error) { console.error(error); }
+    }, 1000);
+}
+
+
+// Load ML Results from API
+async function loadMlResults() {
+    try {
+        const resp = await fetch(`${API_URL}/ml-results`);
+        const data = await resp.json();
+
+        if (data.error) {
+            addLog(mlServerLogs, 'error', data.error);
+            return;
+        }
+
+        // Regression Metrics
+        const reg = data.regression_metrics || {};
+        mlMetricsList.innerHTML = `
+            <li><strong>Model:</strong> ${data.model || 'N/A'}</li>
+            <li><strong>Validation:</strong> ${data.validation || 'N/A'}</li>
+            <li><strong>MSE:</strong> ${(reg.overall_mse || 0).toFixed(6)}</li>
+            <li><strong>MAE:</strong> ${(reg.overall_mae || 0).toFixed(6)}</li>
+            <li><strong>RMSE:</strong> ${(reg.overall_rmse || 0).toFixed(6)}</li>
+            <li><strong>R²:</strong> <span class="${reg.overall_r2 > 0.5 ? 'metric-good' : reg.overall_r2 > 0 ? 'metric-warn' : 'metric-bad'}">${(reg.overall_r2 || 0).toFixed(4)}</span></li>
+        `;
+
+        // Classification Metrics
+        const cls = data.classification_metrics || {};
+        if (cls.accuracy !== undefined) {
+            mlClassificationCard.classList.remove('hidden');
+            mlClassMetricsList.innerHTML = `
+                <li><strong>Accuracy:</strong> <span class="${cls.accuracy > 0.7 ? 'metric-good' : cls.accuracy > 0.5 ? 'metric-warn' : 'metric-bad'}">${(cls.accuracy * 100).toFixed(2)}%</span></li>
+                <li><strong>Precision (macro):</strong> ${(cls.precision_macro || 0).toFixed(4)}</li>
+                <li><strong>Recall (macro):</strong> ${(cls.recall_macro || 0).toFixed(4)}</li>
+                <li><strong>F1 Score (macro):</strong> ${(cls.f1_macro || 0).toFixed(4)}</li>
+            `;
+
+            if (data.thresholds) {
+                const t = data.thresholds;
+                mlClassMetricsList.innerHTML += `
+                    <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;">
+                        <strong>Label Thresholds:</strong><br>
+                        Low ≤ ${(t.low_max || 0).toFixed(6)}<br>
+                        Medium: ${(t.med_min || 0).toFixed(6)} – ${(t.med_max || 0).toFixed(6)}<br>
+                        High ≥ ${(t.high_min || 0).toFixed(6)}
+                    </li>
+                `;
+            }
+        }
+
+        // Fold Results Table
+        const folds = data.folds || [];
+        if (folds.length > 0) {
+            mlFoldsCard.classList.remove('hidden');
+            const thead = mlFoldsTable.querySelector('thead');
+            const tbody = mlFoldsTable.querySelector('tbody');
+            thead.innerHTML = '<tr><th>Fold</th><th>Train Rows</th><th>Test Rows</th><th>MSE</th><th>MAE</th><th>R²</th></tr>';
+            tbody.innerHTML = '';
+            folds.forEach(f => {
+                const r2Class = f.r2 > 0.5 ? 'metric-good' : f.r2 > 0 ? 'metric-warn' : 'metric-bad';
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${f.fold}</td>
+                        <td>${f.train_rows}</td>
+                        <td>${f.test_rows}</td>
+                        <td>${f.mse.toFixed(6)}</td>
+                        <td>${f.mae.toFixed(6)}</td>
+                        <td class="${r2Class}">${f.r2.toFixed(4)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Saved Files
+        const files = data.saved_files || {};
+        if (Object.keys(files).length > 0) {
+            mlFilesCard.classList.remove('hidden');
+            mlFilesList.innerHTML = '';
+            for (const [key, path] of Object.entries(files)) {
+                mlFilesList.innerHTML += `<li><strong>${key}:</strong> <span class="highlight-path">${path}</span></li>`;
+            }
+        }
+
+    } catch (error) {
+        console.error('Failed to load ML results:', error);
+        addLog(mlServerLogs, 'error', 'Failed to load results.');
+    }
+}
+
+
+// Confusion Matrix Modal
+mlConfusionBtn.addEventListener('click', async () => {
+    try {
+        const resp = await fetch(`${API_URL}/ml-confusion-matrix`);
+        const data = await resp.json();
+
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+
+        renderConfusionMatrix(data);
+        cmModal.classList.remove('hidden');
+
+    } catch (error) {
+        alert('Failed to load confusion matrix: ' + error.message);
+    }
+});
+
+cmModalClose.addEventListener('click', () => {
+    cmModal.classList.add('hidden');
+});
+
+// Close modal on overlay click
+cmModal.addEventListener('click', (e) => {
+    if (e.target === cmModal) {
+        cmModal.classList.add('hidden');
+    }
+});
+
+function renderConfusionMatrix(data) {
+    const { matrix, labels } = data;
+    if (!matrix || !labels) {
+        cmBody.innerHTML = '<p style="color: var(--text-muted);">No data available.</p>';
+        return;
+    }
+
+    // Find max value for heatmap scaling
+    let maxVal = 0;
+    matrix.forEach(row => row.forEach(val => { if (val > maxVal) maxVal = val; }));
+
+    // Color function: green diagonal (correct), red off-diagonal (errors)
+    function getCellColor(val, isCorrect) {
+        const intensity = maxVal > 0 ? val / maxVal : 0;
+        if (isCorrect) {
+            // Green tones for correct predictions
+            const r = Math.round(20 + (35 - 20) * (1 - intensity));
+            const g = Math.round(60 + (134 - 60) * intensity);
+            const b = Math.round(30 + (54 - 30) * (1 - intensity));
+            return `rgb(${r}, ${g}, ${b})`;
+        } else {
+            // Red tones for misclassifications
+            const r = Math.round(40 + (218 - 40) * intensity);
+            const g = Math.round(30 + (54 - 30) * (1 - intensity));
+            const b = Math.round(30 + (51 - 30) * (1 - intensity));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+    }
+
+    let html = '<table class="cm-table">';
+
+    // Header row
+    html += '<tr><th></th>';
+    labels.forEach(label => {
+        html += `<th>${label}<br><small>(Predicted)</small></th>`;
+    });
+    html += '</tr>';
+
+    // Data rows
+    matrix.forEach((row, i) => {
+        html += `<tr><td class="header-label">${labels[i]}<br><small>(Actual)</small></td>`;
+        row.forEach((val, j) => {
+            const isCorrect = i === j;
+            const bgColor = getCellColor(val, isCorrect);
+            html += `<td style="background: ${bgColor}; color: white;">${val}</td>`;
+        });
+        html += '</tr>';
+    });
+
+    html += '</table>';
+    cmBody.innerHTML = html;
+
+    // Legend
+    cmLegend.innerHTML = `
+        <div class="cm-legend-item">
+            <div class="cm-legend-swatch" style="background: rgb(35, 134, 54);"></div>
+            <span>Correct (diagonal)</span>
+        </div>
+        <div class="cm-legend-item">
+            <div class="cm-legend-swatch" style="background: rgb(218, 54, 51);"></div>
+            <span>Misclassified (off-diagonal)</span>
+        </div>
+        <div class="cm-legend-item">
+            <span style="font-style: italic;">Rows = Actual, Columns = Predicted</span>
+        </div>
+    `;
+}

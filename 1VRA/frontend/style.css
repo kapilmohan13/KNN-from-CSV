@@ -380,3 +380,139 @@ td {
 tr:hover td {
     background-color: rgba(255, 255, 255, 0.02);
 }
+
+/* Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    min-width: 420px;
+    max-width: 700px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+    animation: modalFadeIn 0.25s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.modal-header h2 {
+    font-size: 1.3rem;
+    color: var(--primary);
+}
+
+/* Confusion Matrix */
+.cm-body {
+    overflow-x: auto;
+}
+
+.cm-table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.cm-table th,
+.cm-table td {
+    padding: 14px 18px;
+    text-align: center;
+    border: 1px solid var(--border);
+    font-size: 0.95rem;
+}
+
+.cm-table th {
+    background: var(--bg-input);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cm-table td {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 1.05rem;
+    transition: transform 0.15s;
+}
+
+.cm-table td:hover {
+    transform: scale(1.05);
+}
+
+.cm-table .header-label {
+    background: var(--bg-panel);
+    color: var(--accent);
+    font-family: var(--font-main);
+    font-weight: 600;
+}
+
+.cm-legend {
+    margin-top: 16px;
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.cm-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cm-legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+}
+
+/* Fold metrics highlight */
+.metric-good {
+    color: var(--success);
+}
+
+.metric-warn {
+    color: #d29922;
+}
+
+.metric-bad {
+    color: var(--error);
+}

@@ -8,11 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from datetime import datetime
 from pathlib import Path
-from pathlib import Path
-from indicators import TechnicalIndicators
 from indicators import TechnicalIndicators
 from labelling import RiskLabeller
 from clustering import ClusteringModel
+from ml_training import rolling_window_validation, walk_forward_validation, save_results_to_file
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -566,6 +565,151 @@ def process_kmeans_task(file_path: Path, output_path: Path, k_clusters: int, k_m
     except Exception as e:
         update_status("error", "Unexpected Error", f"Critical error: {str(e)}")
         logger.error(e, exc_info=True)
+
+
+# ===================== ML TRAINING =====================
+
+# Global store for ML results (single-user app)
+ml_results_store = {}
+
+def process_ml_training_task(
+    file_path: Path, 
+    algorithm: str, 
+    validation_type: str, 
+    window_size: int
+):
+    try:
+        update_status("processing", "Starting ML Training", f"Loading {file_path}...")
+        
+        df = pd.read_csv(file_path)
+        update_status("processing", "Data Loaded", f"Loaded {len(df)} rows.")
+        
+        # Check required columns
+        if 'Volatility' not in df.columns:
+            update_status("error", "Column Missing", "'Volatility' column not found. Run Volatility calculation first.")
+            return
+        
+        def status_cb(msg):
+            update_status("processing", "Training", msg)
+        
+        update_status("processing", "Training Started", 
+                      f"Algorithm: {algorithm}, Validation: {validation_type}, Window: {window_size}")
+        
+        if validation_type == 'rolling':
+            results = rolling_window_validation(
+                df, target_col='Volatility', window_size=window_size, status_callback=status_cb
+            )
+        elif validation_type == 'walk_forward':
+            results = walk_forward_validation(
+                df, target_col='Volatility', initial_window=window_size, status_callback=status_cb
+            )
+        else:
+            update_status("error", "Invalid Validation", f"Unknown validation type: {validation_type}")
+            return
+        
+        # Save results to files
+        update_status("processing", "Saving Results", "Writing metrics and predictions to files...")
+        prefix = f"{algorithm}_{validation_type}"
+        output_dir = DATA_DIR / "ml_results"
+        saved_files = save_results_to_file(results, output_dir, prefix)
+        
+        # Store results in memory for API access
+        ml_results_store['latest'] = results
+        ml_results_store['saved_files'] = saved_files
+        
+        # Build summary
+        reg = results.get('regression_metrics', {})
+        cls = results.get('classification_metrics', {})
+        summary_parts = [
+            f"Overall MSE: {reg.get('overall_mse', 0):.6f}",
+            f"Overall MAE: {reg.get('overall_mae', 0):.6f}",
+            f"Overall R²: {reg.get('overall_r2', 0):.4f}",
+            f"Overall RMSE: {reg.get('overall_rmse', 0):.6f}"
+        ]
+        if cls:
+            summary_parts.append(f"Classification Accuracy: {cls.get('accuracy', 0):.4f}")
+            summary_parts.append(f"F1 Macro: {cls.get('f1_macro', 0):.4f}")
+        
+        summary = " | ".join(summary_parts)
+        
+        processing_status["output_file"] = saved_files.get('predictions', '')
+        # Store file paths in status for the frontend
+        processing_status["ml_saved_files"] = saved_files
+        
+        update_status("completed", "ML Training Complete", 
+                      f"Done. {len(results.get('folds', []))} folds completed. {summary}")
+        update_status("completed", "ML Training Complete",
+                      f"Files saved to: {output_dir}")
+    
+    except Exception as e:
+        update_status("error", "ML Training Error", f"Critical error: {str(e)}")
+        logger.error(e, exc_info=True)
+
+
+@app.post("/train-ml")
+async def train_ml(
+    file_path: str = None,
+    algorithm: str = "linear_regression",
+    validation_type: str = "rolling",
+    window_size: int = 6,
+    background_tasks: BackgroundTasks = None
+):
+    if not file_path:
+        if processing_status["output_file"]:
+            file_path = processing_status["output_file"]
+        else:
+            raise HTTPException(status_code=400, detail="No file selected.")
+    
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    
+    # Reset status
+    processing_status["status"] = "starting"
+    processing_status["details"] = []
+    processing_status["message"] = "ML Training Queued"
+    
+    background_tasks.add_task(
+        process_ml_training_task, file_path_obj, algorithm, validation_type, window_size
+    )
+    
+    return {"message": "ML Training started", "validation": validation_type, "window": window_size}
+
+
+@app.get("/ml-results")
+async def get_ml_results():
+    if 'latest' not in ml_results_store:
+        return {"error": "No ML results available yet. Run training first."}
+    
+    results = ml_results_store['latest']
+    saved_files = ml_results_store.get('saved_files', {})
+    
+    return {
+        "model": results.get('model'),
+        "validation": results.get('validation'),
+        "regression_metrics": results.get('regression_metrics'),
+        "classification_metrics": {
+            k: v for k, v in results.get('classification_metrics', {}).items() 
+            if k != 'classification_report'
+        },
+        "classification_report": results.get('classification_metrics', {}).get('classification_report', ''),
+        "folds": results.get('folds'),
+        "thresholds": results.get('thresholds'),
+        "saved_files": saved_files
+    }
+
+
+@app.get("/ml-confusion-matrix")
+async def get_confusion_matrix():
+    if 'latest' not in ml_results_store:
+        return {"error": "No ML results available yet."}
+    
+    results = ml_results_store['latest']
+    cm = results.get('confusion_matrix')
+    if not cm:
+        return {"error": "No confusion matrix available. Check if labels were present in the data."}
+    
+    return cm
 
 
 @app.get("/status")

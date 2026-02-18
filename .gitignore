@@ -28,4 +28,6 @@ models/RandomForest_model.sav
 1VRA/data/CLUSTER_LBL_VOL_PROCESSED_20260216_223005_icicibank.csv
 1VRA/data/LBL_VOL_PROCESSED_20260216_223005_icicibank.csv
 1VRA/data/PROCESSED_20260216_223005_icicibank.csv
-1VRA/data/VOL_PROCESSED_20260216_223005_icicibank.csv
+1VRA/data/VOL_PROCESSED_20260216_223005_icicibank.csv.
+1VRA/backend/__pycache__/*
+1VRA/data/*
