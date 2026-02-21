@@ -24,6 +24,7 @@
                 <li data-tab="volatility">2. Volatility & Labels</li>
                 <li data-tab="clustering">3. DBSCAN Clustering</li>
                 <li data-tab="mltraining">4. ML Training</li>
+                <li data-tab="hybridml">5. Hybrid-ML</li>
                 <li class="disabled">Backtesting (Coming Soon)</li>
             </ul>
         </nav>
@@ -279,7 +280,7 @@ High risk = > 66th percentile</textarea>
                                 <label>Algorithm</label>
                                 <select id="mlAlgorithm" class="input-select">
                                     <option value="linear_regression">Linear Regression</option>
-                                    <option value="future_model" disabled>More Models (Coming Soon)</option>
+                                    <option value="xgboost">XGBoost (Regressor)</option>
                                 </select>
                             </div>
                             <div class="input-group" style="flex: 1;">
@@ -287,6 +288,13 @@ High risk = > 66th percentile</textarea>
                                 <select id="mlValidation" class="input-select">
                                     <option value="rolling">Rolling Window Validation</option>
                                     <option value="walk_forward">Walk-Forward (Expanding) Validation</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label>Segmentation Mode</label>
+                                <select id="mlSegmentMode" class="input-select">
+                                    <option value="count">Record Count (Fixed Size)</option>
+                                    <option value="month">Monthly (Calendar Month)</option>
                                 </select>
                             </div>
                         </div>
@@ -377,6 +385,119 @@ Collects performance metrics across all test windows.</textarea>
                         <!-- Will be populated by JS -->
                     </div>
                     <div id="cmLegend" class="cm-legend"></div>
+                </div>
+            </div>
+
+            <!-- Hybrid-ML Tab -->
+            <div id="hybridml" class="tab-content hidden">
+                <header class="tab-header">
+                    <h1>Hybrid-ML Training</h1>
+                    <p>Train the same models using cluster-augmented data (one-hot encoded) to see if clustering
+                        improves prediction performance.</p>
+                </header>
+
+                <div class="card">
+                    <h3>1. Configuration</h3>
+                    <div class="file-upload-container" style="flex-wrap: wrap;">
+                        <div class="row" style="width: 100%;">
+                            <div class="input-group" style="flex: 1;">
+                                <label>Cluster Source</label>
+                                <select id="hybridClusterSource" class="input-select">
+                                    <option value="dbscan">DBSCAN</option>
+                                    <option value="kmeans">K-Means</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 2;">
+                                <label>Cluster File</label>
+                                <div class="row">
+                                    <input type="text" id="hybridFilePath" class="input-text"
+                                        placeholder="Auto-populated from clustering output" readonly
+                                        style="opacity: 0.8; cursor: default;">
+                                    <label for="hybridCsvFile" class="btn small">Browse</label>
+                                    <input type="file" id="hybridCsvFile" accept=".csv" hidden>
+                                </div>
+                                <small id="hybridFileHint" style="color: var(--text-muted); font-size: 0.8em;">Select a
+                                    cluster source or browse a CLUSTER_* file</small>
+                            </div>
+                        </div>
+                        <div class="row" style="width: 100%; margin-top: 12px;">
+                            <div class="input-group" style="flex: 1;">
+                                <label>Algorithm</label>
+                                <select id="hybridAlgorithm" class="input-select">
+                                    <option value="linear_regression">Linear Regression</option>
+                                    <option value="xgboost">XGBoost (Regressor)</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label>Validation Strategy</label>
+                                <select id="hybridValidation" class="input-select">
+                                    <option value="rolling">Rolling Window Validation</option>
+                                    <option value="walk_forward">Walk-Forward (Expanding) Validation</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label>Segmentation Mode</label>
+                                <select id="hybridSegmentMode" class="input-select">
+                                    <option value="count">Record Count (Fixed Size)</option>
+                                    <option value="month">Monthly (Calendar Month)</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label id="hybridWindowLabel">Window Size (segments)</label>
+                                <input type="number" id="hybridWindowSize" class="input-number" value="6" min="2"
+                                    max="20">
+                                <small style="color: var(--text-muted); font-size: 0.8em;" id="hybridWindowHint">Train
+                                    on N segments, test on next</small>
+                            </div>
+                        </div>
+                        <div style="width: 100%; margin-top: 12px;">
+                            <button id="hybridTrainBtn" class="btn primary">Start Hybrid Training</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid-container">
+                    <div class="card log-section">
+                        <h3>2. Training Logs</h3>
+                        <div id="hybridServerLogs" class="log-window">
+                            <div class="log-entry system">Ready for Hybrid-ML training.</div>
+                        </div>
+                    </div>
+
+                    <div class="card parameters-section">
+                        <h3>Regression Metrics</h3>
+                        <ul class="params-list" id="hybridMetricsList">
+                            <li>Waiting for training...</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card hidden" id="hybridClassificationCard">
+                    <h3>3. Classification Metrics</h3>
+                    <div class="row" style="gap: 24px; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <ul class="params-list" id="hybridClassMetricsList"></ul>
+                        </div>
+                        <div style="flex: 0 0 auto;">
+                            <button id="hybridConfusionBtn" class="btn primary" style="background: var(--primary);">Show
+                                Confusion Matrix</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card hidden" id="hybridFoldsCard">
+                    <h3>4. Fold Results</h3>
+                    <div class="table-wrapper">
+                        <table id="hybridFoldsTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card hidden" id="hybridFilesCard">
+                    <h3>5. Saved Files</h3>
+                    <ul class="params-list" id="hybridFilesList"></ul>
                 </div>
             </div>
 

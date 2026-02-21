@@ -8,6 +8,11 @@ from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     confusion_matrix, classification_report
 )
+try:
+    from xgboost import XGBRegressor
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
 
 
 # Columns to exclude from features
@@ -91,30 +96,124 @@ def _apply_labels(volatility_values: pd.Series, thresholds: dict) -> pd.Series:
     return volatility_values.apply(classify)
 
 
+def _get_model(algorithm: str):
+    """
+    Instantiate the appropriate regression model and return its parameters.
+    """
+    if algorithm == 'xgboost':
+        if not XGB_AVAILABLE:
+            raise ImportError("XGBoost is not installed. Please install it with 'pip install xgboost'.")
+        
+        params = {
+            'n_estimators': 100,
+            'max_depth': 4,
+            'learning_rate': 0.1,
+            'verbosity': 0,
+            'random_state': 42,
+            'n_jobs': -1
+        }
+        model = XGBRegressor(**params)
+        return model, params
+    
+    else:
+        # Default to Linear Regression
+        params = {
+            'fit_intercept': True,
+            'copy_X': True
+        }
+        model = LinearRegression(**params)
+        return model, params
+
+
+def _build_segments(df: pd.DataFrame, mode: str, size_param: int, status_callback=None) -> list:
+    """
+    Divides data into segments for validation.
+    Returns a list of (start_idx, end_idx) tuples.
+    """
+    total_rows = len(df)
+    
+    if mode == 'month':
+        if 'time' not in df.columns:
+            if status_callback:
+                status_callback("Warning: 'time' column not found for monthly mode. Falling back to count mode.")
+            mode = 'count'
+        else:
+            try:
+                # Format: 15-04-2025 09:15:00
+                df_temp = df.copy()
+                df_temp['dt'] = pd.to_datetime(df['time'], format='%d-%m-%Y %H:%M:%S', errors='coerce')
+                
+                # Check if conversion worked
+                if df_temp['dt'].isna().all():
+                     # Try auto format
+                     df_temp['dt'] = pd.to_datetime(df['time'], errors='coerce')
+                
+                if df_temp['dt'].isna().any() and status_callback:
+                     status_callback("Warning: Some timestamps could not be parsed.")
+                
+                # Group by Month
+                df_temp['period'] = df_temp['dt'].dt.to_period('M')
+                groups = df_temp.groupby('period').groups
+                periods = sorted(groups.keys())
+                
+                if len(periods) <= size_param:
+                    if status_callback:
+                        status_callback(f"Not enough months ({len(periods)}) for window {size_param}. Falling back to count mode.")
+                    mode = 'count'
+                else:
+                    segments = []
+                    for p in periods:
+                        indices = groups[p]
+                        segments.append((indices[0], indices[-1] + 1))
+                    
+                    if status_callback:
+                        status_callback(f"Divided data into {len(segments)} calendar months.")
+                    return segments
+            except Exception as e:
+                if status_callback:
+                    status_callback(f"Error in monthly grouping: {str(e)}. Falling back to count mode.")
+                mode = 'count'
+
+    # Fallback / Count Mode
+    # Divide evenly into segments
+    n_segments = max(size_param + 2, 10) 
+    segment_size = total_rows // n_segments
+    
+    if segment_size < 5:
+        segment_size = 5
+        n_segments = total_rows // 5
+        
+    segments = []
+    for i in range(n_segments):
+        start = i * segment_size
+        end = (i + 1) * segment_size if i < n_segments - 1 else total_rows
+        if start < total_rows:
+            segments.append((start, end))
+            
+    if status_callback:
+        status_callback(f"Divided data into {len(segments)} segments of ~{segment_size} rows each.")
+    return segments
+
+
 def rolling_window_validation(
     df: pd.DataFrame,
     target_col: str = 'Volatility',
+    algorithm: str = 'linear_regression',
     window_size: int = 6,
+    segment_mode: str = 'count',
     status_callback=None
 ) -> dict:
     """
-    Rolling Window Validation for Linear Regression.
-    
-    Train on a fixed window, test on the next period.
-    Roll forward each iteration.
-    
-    window_size: number of "months" (approximated as groups of ~21*12 bars,
-    but since data is 5-min bars, we'll use fractional splits based on total rows).
-    
-    For simplicity: divide data into `window_size + remaining` chunks.
-    Each chunk = total_rows / (total number of months-equivalent).
-    
-    Actually, let's be smarter: group by calendar month from the 'time' column.
+    Rolling Window Validation for a selected Algorithm.
     """
+    model_obj, model_params = _get_model(algorithm)
+    
     results = {
-        'model': 'Linear Regression',
+        'model': algorithm.replace('_', ' ').title(),
+        'parameters': model_params,
         'validation': 'Rolling Window',
         'window_size': window_size,
+        'segment_mode': segment_mode,
         'folds': [],
         'regression_metrics': {},
         'classification_metrics': {},
@@ -150,27 +249,17 @@ def rolling_window_validation(
     feature_cols = [c for c in feature_cols if c != target_col]
     
     # Remove rows with NaN in features or target
-    df_clean = df[feature_cols + [target_col]].dropna().reset_index(drop=True)
-    if 'Risk_Label' in df.columns:
-        # Keep Risk_Label aligned
-        risk_labels = df.loc[df_clean.index, 'Risk_Label'] if len(df_clean) == len(df) else None
+    df_clean = df[feature_cols + [target_col] + (['time'] if 'time' in df.columns else [])].dropna().reset_index(drop=True)
     
     if status_callback:
         status_callback(f"Clean data: {len(df_clean)} rows after dropping NaN.")
     
-    # Split into monthly-equivalent chunks
-    # Estimate: if 5-min bars, ~75 bars/day, ~1500 bars/month (20 trading days)
-    # But let's just divide evenly into segments
-    total_rows = len(df_clean)
-    # Minimum segments needed: window_size + 1 (at least 1 test)
-    n_segments = max(window_size + 2, 8)  # At least 8 segments for meaningful rolling
-    segment_size = total_rows // n_segments
+    # Build Segments
+    segments = _build_segments(df_clean, segment_mode, window_size, status_callback)
+    n_segments = len(segments)
     
-    if segment_size < 10:
-        raise ValueError(f"Not enough data for {n_segments} segments. Total rows: {total_rows}")
-    
-    if status_callback:
-        status_callback(f"Data divided into {n_segments} segments of ~{segment_size} rows each.")
+    if n_segments <= window_size:
+        raise ValueError(f"Not enough segments ({n_segments}) for window size {window_size}.")
     
     X = df_clean[feature_cols].values
     y = df_clean[target_col].values
@@ -182,10 +271,13 @@ def rolling_window_validation(
     n_folds = n_segments - window_size
     
     for fold in range(n_folds):
-        train_start = fold * segment_size
-        train_end = (fold + window_size) * segment_size
-        test_start = train_end
-        test_end = min((fold + window_size + 1) * segment_size, total_rows)
+        # Training window: segments [fold ... fold+window_size-1]
+        train_start = segments[fold][0]
+        train_end = segments[fold + window_size - 1][1]
+        
+        # Test window: segment [fold+window_size]
+        test_start = segments[fold + window_size][0]
+        test_end = segments[fold + window_size][1]
         
         if test_end <= test_start:
             break
@@ -196,9 +288,8 @@ def rolling_window_validation(
         y_test = y[test_start:test_end]
         
         # Train
-        model = LinearRegression()
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        model_obj.fit(X_train, y_train)
+        y_pred = model_obj.predict(X_test)
         
         # Fold metrics
         mse = mean_squared_error(y_test, y_pred)
@@ -271,19 +362,22 @@ def rolling_window_validation(
 def walk_forward_validation(
     df: pd.DataFrame,
     target_col: str = 'Volatility',
+    algorithm: str = 'linear_regression',
     initial_window: int = 3,
+    segment_mode: str = 'count',
     status_callback=None
 ) -> dict:
     """
-    Walk-Forward (Expanding Window) Validation for Linear Regression.
-    
-    Start with initial_window segments, test on next segment.
-    Then expand training window by adding that segment, retrain, test on next, etc.
+    Walk-Forward (Expanding Window) Validation for a selected Algorithm.
     """
+    model_obj, model_params = _get_model(algorithm)
+    
     results = {
-        'model': 'Linear Regression',
+        'model': algorithm.replace('_', ' ').title(),
+        'parameters': model_params,
         'validation': 'Walk-Forward (Expanding)',
         'initial_window': initial_window,
+        'segment_mode': segment_mode,
         'folds': [],
         'regression_metrics': {},
         'classification_metrics': {},
@@ -319,20 +413,17 @@ def walk_forward_validation(
     feature_cols = [c for c in feature_cols if c != target_col]
     
     # Clean data
-    df_clean = df[feature_cols + [target_col]].dropna().reset_index(drop=True)
+    df_clean = df[feature_cols + [target_col] + (['time'] if 'time' in df.columns else [])].dropna().reset_index(drop=True)
     
     if status_callback:
         status_callback(f"Clean data: {len(df_clean)} rows after dropping NaN.")
     
-    total_rows = len(df_clean)
-    n_segments = max(initial_window + 2, 8)
-    segment_size = total_rows // n_segments
+    # Build Segments
+    segments = _build_segments(df_clean, segment_mode, initial_window, status_callback)
+    n_segments = len(segments)
     
-    if segment_size < 10:
-        raise ValueError(f"Not enough data for {n_segments} segments. Total rows: {total_rows}")
-    
-    if status_callback:
-        status_callback(f"Data divided into {n_segments} segments of ~{segment_size} rows each.")
+    if n_segments <= initial_window:
+        raise ValueError(f"Not enough segments ({n_segments}) for initial window {initial_window}.")
     
     X = df_clean[feature_cols].values
     y = df_clean[target_col].values
@@ -344,10 +435,10 @@ def walk_forward_validation(
     n_folds = n_segments - initial_window
     
     for fold in range(n_folds):
-        train_start = 0  # Always start from beginning (expanding)
-        train_end = (initial_window + fold) * segment_size
-        test_start = train_end
-        test_end = min((initial_window + fold + 1) * segment_size, total_rows)
+        train_start = segments[0][0]  # Always start from beginning (expanding)
+        train_end = segments[initial_window + fold - 1][1]
+        test_start = segments[initial_window + fold][0]
+        test_end = segments[initial_window + fold][1]
         
         if test_end <= test_start:
             break
@@ -358,9 +449,8 @@ def walk_forward_validation(
         y_test = y[test_start:test_end]
         
         # Train
-        model = LinearRegression()
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
+        model_obj.fit(X_train, y_train)
+        y_pred = model_obj.predict(X_test)
         
         # Fold metrics
         mse = mean_squared_error(y_test, y_pred)

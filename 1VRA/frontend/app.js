@@ -846,6 +846,7 @@ function copyPath(elementId) {
 // ML Training Elements
 const mlAlgorithm = document.getElementById('mlAlgorithm');
 const mlValidation = document.getElementById('mlValidation');
+const mlSegmentMode = document.getElementById('mlSegmentMode');
 const mlInputPath = document.getElementById('mlInputPath');
 const mlCsvFile = document.getElementById('mlCsvFile');
 const mlWindowSize = document.getElementById('mlWindowSize');
@@ -869,21 +870,25 @@ const cmLegend = document.getElementById('cmLegend');
 
 let selectedMlFile = null;
 
-// Validation Strategy Switcher
-mlValidation.addEventListener('change', () => {
+// Validation Strategy & Segment Mode Switcher
+function updateMlHints() {
     const val = mlValidation.value;
+    const mode = mlSegmentMode.value;
+    const unit = mode === 'month' ? 'months' : 'segments';
+
     if (val === 'rolling') {
-        mlWindowLabel.textContent = 'Window Size (segments)';
-        mlWindowSize.value = 6;
-        mlWindowHint.textContent = 'Train on N segments, test on next';
-        mlValidationDesc.value = `Rolling Window: Train on a fixed-size window (e.g., segments 1–6), test on segment 7.\nThen roll forward: train on segments 2–7, test on segment 8, and so on.\nCollects performance metrics across all test windows.`;
+        mlWindowLabel.textContent = `Window Size (${unit})`;
+        mlWindowHint.textContent = `Train on N ${unit}, test on next`;
+        mlValidationDesc.value = `Rolling Window: Train on a fixed-size window (e.g., ${unit} 1–6), test on ${unit} 7.\nThen roll forward: train on ${unit} 2–7, test on ${unit} 8, and so on.\nCollects performance metrics across all test windows.`;
     } else {
-        mlWindowLabel.textContent = 'Initial Window (segments)';
-        mlWindowSize.value = 3;
-        mlWindowHint.textContent = 'Start with N segments, expand each fold';
-        mlValidationDesc.value = `Walk-Forward: Train on an expanding window (start with N segments).\nTest on the next segment. Add that segment to training, retrain, test on the next, and so on.\nCollects performance metrics of prediction across all expanding windows.`;
+        mlWindowLabel.textContent = `Initial Window (${unit})`;
+        mlWindowHint.textContent = `Start with N ${unit}, expand each fold`;
+        mlValidationDesc.value = `Walk-Forward: Train on an expanding window (start with N ${unit}).\nTest on the next ${unit}. Add that ${unit} to training, retrain, test on the next, and so on.\nCollects performance metrics of prediction across all expanding windows.`;
     }
-});
+}
+
+mlValidation.addEventListener('change', updateMlHints);
+mlSegmentMode.addEventListener('change', updateMlHints);
 
 // ML File Browse
 mlCsvFile.addEventListener('change', (e) => {
@@ -912,6 +917,7 @@ mlTrainBtn.addEventListener('click', async () => {
     let filePath = mlInputPath.value;
     const algorithm = mlAlgorithm.value;
     const validationType = mlValidation.value;
+    const segmentMode = mlSegmentMode.value;
     const windowSize = mlWindowSize.value;
 
     // Handle file upload if user browsed a file
@@ -964,6 +970,7 @@ mlTrainBtn.addEventListener('click', async () => {
         url.searchParams.append('algorithm', algorithm);
         url.searchParams.append('validation_type', validationType);
         url.searchParams.append('window_size', windowSize);
+        url.searchParams.append('segment_mode', segmentMode);
 
         const resp = await fetch(url, { method: 'POST' });
         if (!resp.ok) {
@@ -1037,9 +1044,16 @@ async function loadMlResults() {
 
         // Regression Metrics
         const reg = data.regression_metrics || {};
+        const params = data.parameters || {};
+        const paramsHtml = Object.entries(params).map(([k, v]) => `<li><strong>${k}:</strong> ${v}</li>`).join('');
+
         mlMetricsList.innerHTML = `
             <li><strong>Model:</strong> ${data.model || 'N/A'}</li>
             <li><strong>Validation:</strong> ${data.validation || 'N/A'}</li>
+            <li><strong>Segmentation:</strong> ${data.segment_mode || 'N/A'}</li>
+            <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;"><strong>Parameters:</strong></li>
+            ${paramsHtml}
+            <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;"><strong>Overall Metrics:</strong></li>
             <li><strong>MSE:</strong> ${(reg.overall_mse || 0).toFixed(6)}</li>
             <li><strong>MAE:</strong> ${(reg.overall_mae || 0).toFixed(6)}</li>
             <li><strong>RMSE:</strong> ${(reg.overall_rmse || 0).toFixed(6)}</li>
@@ -1207,3 +1221,323 @@ function renderConfusionMatrix(data) {
         </div>
     `;
 }
+
+
+// ===================== HYBRID-ML TAB =====================
+
+// Hybrid Elements
+const hybridClusterSource = document.getElementById('hybridClusterSource');
+const hybridFilePath = document.getElementById('hybridFilePath');
+const hybridCsvFile = document.getElementById('hybridCsvFile');
+const hybridFileHint = document.getElementById('hybridFileHint');
+const hybridAlgorithm = document.getElementById('hybridAlgorithm');
+const hybridValidation = document.getElementById('hybridValidation');
+const hybridSegmentMode = document.getElementById('hybridSegmentMode');
+const hybridWindowSize = document.getElementById('hybridWindowSize');
+const hybridWindowLabel = document.getElementById('hybridWindowLabel');
+const hybridWindowHint = document.getElementById('hybridWindowHint');
+const hybridTrainBtn = document.getElementById('hybridTrainBtn');
+const hybridServerLogs = document.getElementById('hybridServerLogs');
+const hybridMetricsList = document.getElementById('hybridMetricsList');
+const hybridClassificationCard = document.getElementById('hybridClassificationCard');
+const hybridClassMetricsList = document.getElementById('hybridClassMetricsList');
+const hybridConfusionBtn = document.getElementById('hybridConfusionBtn');
+const hybridFoldsCard = document.getElementById('hybridFoldsCard');
+const hybridFoldsTable = document.getElementById('hybridFoldsTable');
+const hybridFilesCard = document.getElementById('hybridFilesCard');
+const hybridFilesList = document.getElementById('hybridFilesList');
+
+let selectedHybridFile = null;
+
+// Fetch cluster files from backend and populate
+async function fetchClusterFiles() {
+    try {
+        const resp = await fetch(`${API_URL}/cluster-files`);
+        const data = await resp.json();
+        return data;
+    } catch (e) {
+        console.error('Failed to fetch cluster files:', e);
+        return { dbscan: '', kmeans: '' };
+    }
+}
+
+// Cluster Source Switcher — auto-populate file path
+hybridClusterSource.addEventListener('change', async () => {
+    selectedHybridFile = null;
+    const source = hybridClusterSource.value;
+    const files = await fetchClusterFiles();
+    const path = files[source] || '';
+
+    if (path) {
+        hybridFilePath.value = path;
+        hybridFileHint.textContent = `Using ${source.toUpperCase()} output file`;
+        hybridFileHint.style.color = 'var(--success)';
+    } else {
+        hybridFilePath.value = '';
+        hybridFileHint.textContent = `No ${source.toUpperCase()} file found. Run clustering first or browse manually.`;
+        hybridFileHint.style.color = 'var(--error)';
+    }
+});
+
+// Auto-populate on tab switch
+document.querySelectorAll('.nav-links li').forEach(li => {
+    li.addEventListener('click', async () => {
+        if (li.getAttribute('data-tab') === 'hybridml' && !hybridFilePath.value) {
+            hybridClusterSource.dispatchEvent(new Event('change'));
+        }
+    });
+});
+
+// Hybrid File Browse (override)
+hybridCsvFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        selectedHybridFile = file;
+        hybridFilePath.value = `[Upload] ${file.name}`;
+        hybridFileHint.textContent = `Manual file selected: ${file.name}`;
+        hybridFileHint.style.color = 'var(--text-muted)';
+    }
+});
+
+// Validation Strategy & Segment Mode Switcher
+function updateHybridHints() {
+    const val = hybridValidation.value;
+    const mode = hybridSegmentMode.value;
+    const unit = mode === 'month' ? 'months' : 'segments';
+
+    if (val === 'rolling') {
+        hybridWindowLabel.textContent = `Window Size (${unit})`;
+        hybridWindowHint.textContent = `Train on N ${unit}, test on next`;
+    } else {
+        hybridWindowLabel.textContent = `Initial Window (${unit})`;
+        hybridWindowHint.textContent = `Start with N ${unit}, expand each fold`;
+    }
+}
+
+hybridValidation.addEventListener('change', updateHybridHints);
+hybridSegmentMode.addEventListener('change', updateHybridHints);
+
+// Hybrid Train Button
+hybridTrainBtn.addEventListener('click', async () => {
+    let filePath = hybridFilePath.value;
+    const algorithm = hybridAlgorithm.value;
+    const validationType = hybridValidation.value;
+    const segmentMode = hybridSegmentMode.value;
+    const windowSize = hybridWindowSize.value;
+    const clusterSource = hybridClusterSource.value;
+
+    // Handle manual file upload
+    if (selectedHybridFile) {
+        addLog(hybridServerLogs, 'info', 'Uploading file...');
+        const formData = new FormData();
+        formData.append('file', selectedHybridFile);
+        try {
+            const upResp = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+            if (!upResp.ok) throw new Error('Upload failed');
+            addLog(hybridServerLogs, 'info', 'Processing...');
+            await pollGenericForCompletion();
+            const s = await (await fetch(`${API_URL}/status`)).json();
+            filePath = s.output_file;
+            selectedHybridFile = null;
+        } catch (e) {
+            addLog(hybridServerLogs, 'error', 'Upload failed: ' + e.message);
+            return;
+        }
+    }
+
+    if (!filePath || filePath === '' || filePath.startsWith('[Upload]')) {
+        addLog(hybridServerLogs, 'error', 'No cluster file available. Run clustering first or browse a file.');
+        return;
+    }
+
+    // Reset UI
+    hybridTrainBtn.disabled = true;
+    hybridTrainBtn.textContent = 'Training...';
+    hybridClassificationCard.classList.add('hidden');
+    hybridFoldsCard.classList.add('hidden');
+    hybridFilesCard.classList.add('hidden');
+    hybridServerLogs.innerHTML = '';
+    hybridMetricsList.innerHTML = '<li>Training in progress...</li>';
+
+    const validationLabel = validationType === 'rolling' ? 'Rolling Window' : 'Walk-Forward';
+    addLog(hybridServerLogs, 'system', `Starting Hybrid-ML (${clusterSource.toUpperCase()}) with ${validationLabel} (window=${windowSize})...`);
+    addLog(hybridServerLogs, 'info', `File: ${filePath}`);
+
+    try {
+        const url = new URL(`${API_URL}/train-hybrid`);
+        url.searchParams.append('file_path', filePath);
+        url.searchParams.append('algorithm', algorithm);
+        url.searchParams.append('validation_type', validationType);
+        url.searchParams.append('window_size', windowSize);
+        url.searchParams.append('segment_mode', segmentMode);
+        url.searchParams.append('cluster_source', clusterSource);
+
+        const resp = await fetch(url, { method: 'POST' });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Request failed');
+        }
+
+        startHybridPolling();
+
+    } catch (error) {
+        addLog(hybridServerLogs, 'error', `Error: ${error.message}`);
+        hybridTrainBtn.disabled = false;
+        hybridTrainBtn.textContent = 'Start Hybrid Training';
+    }
+});
+
+
+// Hybrid Polling
+function startHybridPolling() {
+    if (pollingInterval) clearInterval(pollingInterval);
+
+    pollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_URL}/status`);
+            const status = await response.json();
+
+            hybridServerLogs.innerHTML = '';
+            addLog(hybridServerLogs, 'info', `Status: ${status.status}`);
+            status.details.forEach(detail => {
+                let type = 'info';
+                if (detail.includes('Error') || detail.includes('error')) type = 'error';
+                else if (detail.includes('Complete') || detail.includes('Done')) type = 'success';
+                else if (detail.includes('Fold')) type = 'info';
+                const div = document.createElement('div');
+                div.className = `log-entry ${type}`;
+                div.textContent = detail;
+                hybridServerLogs.appendChild(div);
+            });
+            hybridServerLogs.scrollTop = hybridServerLogs.scrollHeight;
+
+            if (status.status === 'completed') {
+                clearInterval(pollingInterval);
+                hybridTrainBtn.disabled = false;
+                hybridTrainBtn.textContent = 'Start Hybrid Training';
+                addLog(hybridServerLogs, 'success', 'Hybrid Training Finished!');
+                loadHybridResults();
+
+            } else if (status.status === 'error') {
+                clearInterval(pollingInterval);
+                hybridTrainBtn.disabled = false;
+                hybridTrainBtn.textContent = 'Retry';
+                addLog(hybridServerLogs, 'error', 'Stopped due to error.');
+            }
+        } catch (error) { console.error(error); }
+    }, 1000);
+}
+
+
+// Load Hybrid Results from API
+async function loadHybridResults() {
+    try {
+        const resp = await fetch(`${API_URL}/hybrid-results`);
+        const data = await resp.json();
+
+        if (data.error) {
+            addLog(hybridServerLogs, 'error', data.error);
+            return;
+        }
+
+        // Regression Metrics
+        const reg = data.regression_metrics || {};
+        const params = data.parameters || {};
+        const paramsHtml = Object.entries(params).map(([k, v]) => `<li><strong>${k}:</strong> ${v}</li>`).join('');
+
+        hybridMetricsList.innerHTML = `
+            <li><strong>Model:</strong> ${data.model || 'N/A'}</li>
+            <li><strong>Validation:</strong> ${data.validation || 'N/A'}</li>
+            <li><strong>Segmentation:</strong> ${data.segment_mode || 'N/A'}</li>
+            <li><strong>Cluster Source:</strong> ${(data.cluster_source || '').toUpperCase()}</li>
+            <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;"><strong>Parameters:</strong></li>
+            ${paramsHtml}
+            <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;"><strong>Overall Metrics:</strong></li>
+            <li><strong>MSE:</strong> ${(reg.overall_mse || 0).toFixed(6)}</li>
+            <li><strong>MAE:</strong> ${(reg.overall_mae || 0).toFixed(6)}</li>
+            <li><strong>RMSE:</strong> ${(reg.overall_rmse || 0).toFixed(6)}</li>
+            <li><strong>R²:</strong> <span class="${reg.overall_r2 > 0.5 ? 'metric-good' : reg.overall_r2 > 0 ? 'metric-warn' : 'metric-bad'}">${(reg.overall_r2 || 0).toFixed(4)}</span></li>
+        `;
+
+        // Classification Metrics
+        const cls = data.classification_metrics || {};
+        if (cls.accuracy !== undefined) {
+            hybridClassificationCard.classList.remove('hidden');
+            hybridClassMetricsList.innerHTML = `
+                <li><strong>Accuracy:</strong> <span class="${cls.accuracy > 0.7 ? 'metric-good' : cls.accuracy > 0.5 ? 'metric-warn' : 'metric-bad'}">${(cls.accuracy * 100).toFixed(2)}%</span></li>
+                <li><strong>Precision (macro):</strong> ${(cls.precision_macro || 0).toFixed(4)}</li>
+                <li><strong>Recall (macro):</strong> ${(cls.recall_macro || 0).toFixed(4)}</li>
+                <li><strong>F1 Score (macro):</strong> ${(cls.f1_macro || 0).toFixed(4)}</li>
+            `;
+
+            if (data.thresholds) {
+                const t = data.thresholds;
+                hybridClassMetricsList.innerHTML += `
+                    <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;">
+                        <strong>Label Thresholds:</strong><br>
+                        Low ≤ ${(t.low_max || 0).toFixed(6)}<br>
+                        Medium: ${(t.med_min || 0).toFixed(6)} – ${(t.med_max || 0).toFixed(6)}<br>
+                        High ≥ ${(t.high_min || 0).toFixed(6)}
+                    </li>
+                `;
+            }
+        }
+
+        // Fold Results Table
+        const folds = data.folds || [];
+        if (folds.length > 0) {
+            hybridFoldsCard.classList.remove('hidden');
+            const thead = hybridFoldsTable.querySelector('thead');
+            const tbody = hybridFoldsTable.querySelector('tbody');
+            thead.innerHTML = '<tr><th>Fold</th><th>Train Rows</th><th>Test Rows</th><th>MSE</th><th>MAE</th><th>R²</th></tr>';
+            tbody.innerHTML = '';
+            folds.forEach(f => {
+                const r2Class = f.r2 > 0.5 ? 'metric-good' : f.r2 > 0 ? 'metric-warn' : 'metric-bad';
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${f.fold}</td>
+                        <td>${f.train_rows}</td>
+                        <td>${f.test_rows}</td>
+                        <td>${f.mse.toFixed(6)}</td>
+                        <td>${f.mae.toFixed(6)}</td>
+                        <td class="${r2Class}">${f.r2.toFixed(4)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Saved Files
+        const files = data.saved_files || {};
+        if (Object.keys(files).length > 0) {
+            hybridFilesCard.classList.remove('hidden');
+            hybridFilesList.innerHTML = '';
+            for (const [key, path] of Object.entries(files)) {
+                hybridFilesList.innerHTML += `<li><strong>${key}:</strong> <span class="highlight-path">${path}</span></li>`;
+            }
+        }
+
+    } catch (error) {
+        console.error('Failed to load Hybrid results:', error);
+        addLog(hybridServerLogs, 'error', 'Failed to load results.');
+    }
+}
+
+
+// Hybrid Confusion Matrix
+hybridConfusionBtn.addEventListener('click', async () => {
+    try {
+        const resp = await fetch(`${API_URL}/hybrid-confusion-matrix`);
+        const data = await resp.json();
+
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+
+        renderConfusionMatrix(data);
+        cmModal.classList.remove('hidden');
+
+    } catch (error) {
+        alert('Failed to load confusion matrix: ' + error.message);
+    }
+});

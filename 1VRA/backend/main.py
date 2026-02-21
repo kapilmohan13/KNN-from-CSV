@@ -44,6 +44,12 @@ processing_status = {
     "output_file": ""
 }
 
+# Track cluster output files per algorithm (for Hybrid-ML tab)
+cluster_output_files = {
+    "dbscan": "",
+    "kmeans": ""
+}
+
 def update_status(status, message, detail=None):
     processing_status["status"] = status
     processing_status["message"] = message
@@ -391,6 +397,13 @@ def process_clustering_task(file_path: Path, output_path: Path, n: int, k: int):
 
         # Save Results
         df['Cluster'] = labels
+        
+        # One-hot encode cluster assignments for hybrid model use
+        update_status("processing", "One-Hot Encoding", "Generating one-hot encoded cluster columns...")
+        cluster_dummies = pd.get_dummies(df['Cluster'], prefix='Cluster').astype(int)
+        df = pd.concat([df, cluster_dummies], axis=1)
+        update_status("processing", "Encoding Complete", f"Added {len(cluster_dummies.columns)} one-hot columns: {list(cluster_dummies.columns)}")
+        
         df.to_csv(output_path, index=False)
         
         # Save Model
@@ -405,6 +418,7 @@ def process_clustering_task(file_path: Path, output_path: Path, n: int, k: int):
         
         # Log Final Success
         processing_status["output_file"] = str(output_path)
+        cluster_output_files["dbscan"] = str(output_path)
         img_url = "" # Could generate plot image path here if we had plotting
         
         msg = f"Clustering Done. Found {n_clusters} clusters (eps={optimal_eps:.2f}). Saved to {output_path} and models/{model_base}..."
@@ -546,6 +560,13 @@ def process_kmeans_task(file_path: Path, output_path: Path, k_clusters: int, k_m
 
         # Save Results
         df['Cluster'] = labels
+        
+        # One-hot encode cluster assignments for hybrid model use
+        update_status("processing", "One-Hot Encoding", "Generating one-hot encoded cluster columns...")
+        cluster_dummies = pd.get_dummies(df['Cluster'], prefix='Cluster').astype(int)
+        df = pd.concat([df, cluster_dummies], axis=1)
+        update_status("processing", "Encoding Complete", f"Added {len(cluster_dummies.columns)} one-hot columns: {list(cluster_dummies.columns)}")
+        
         df.to_csv(output_path, index=False)
         
         update_status("processing", "Saving Models", "Persisting trained model...")
@@ -559,6 +580,7 @@ def process_kmeans_task(file_path: Path, output_path: Path, k_clusters: int, k_m
             return
         
         processing_status["output_file"] = str(output_path)
+        cluster_output_files["kmeans"] = str(output_path)
         processing_status["status"] = "completed"
         processing_status["message"] = f"K-Means Done. Found {n_clusters} clusters. Saved to {output_path}"
         
@@ -576,7 +598,8 @@ def process_ml_training_task(
     file_path: Path, 
     algorithm: str, 
     validation_type: str, 
-    window_size: int
+    window_size: int,
+    segment_mode: str
 ):
     try:
         update_status("processing", "Starting ML Training", f"Loading {file_path}...")
@@ -593,15 +616,15 @@ def process_ml_training_task(
             update_status("processing", "Training", msg)
         
         update_status("processing", "Training Started", 
-                      f"Algorithm: {algorithm}, Validation: {validation_type}, Window: {window_size}")
+                      f"Algorithm: {algorithm}, Validation: {validation_type}, Window: {window_size}, Mode: {segment_mode}")
         
         if validation_type == 'rolling':
             results = rolling_window_validation(
-                df, target_col='Volatility', window_size=window_size, status_callback=status_cb
+                df, target_col='Volatility', algorithm=algorithm, window_size=window_size, segment_mode=segment_mode, status_callback=status_cb
             )
         elif validation_type == 'walk_forward':
             results = walk_forward_validation(
-                df, target_col='Volatility', initial_window=window_size, status_callback=status_cb
+                df, target_col='Volatility', algorithm=algorithm, initial_window=window_size, segment_mode=segment_mode, status_callback=status_cb
             )
         else:
             update_status("error", "Invalid Validation", f"Unknown validation type: {validation_type}")
@@ -652,6 +675,7 @@ async def train_ml(
     algorithm: str = "linear_regression",
     validation_type: str = "rolling",
     window_size: int = 6,
+    segment_mode: str = "count",
     background_tasks: BackgroundTasks = None
 ):
     if not file_path:
@@ -670,7 +694,7 @@ async def train_ml(
     processing_status["message"] = "ML Training Queued"
     
     background_tasks.add_task(
-        process_ml_training_task, file_path_obj, algorithm, validation_type, window_size
+        process_ml_training_task, file_path_obj, algorithm, validation_type, window_size, segment_mode
     )
     
     return {"message": "ML Training started", "validation": validation_type, "window": window_size}
@@ -686,7 +710,9 @@ async def get_ml_results():
     
     return {
         "model": results.get('model'),
+        "parameters": results.get('parameters'),
         "validation": results.get('validation'),
+        "segment_mode": results.get('segment_mode'),
         "regression_metrics": results.get('regression_metrics'),
         "classification_metrics": {
             k: v for k, v in results.get('classification_metrics', {}).items() 
@@ -708,6 +734,185 @@ async def get_confusion_matrix():
     cm = results.get('confusion_matrix')
     if not cm:
         return {"error": "No confusion matrix available. Check if labels were present in the data."}
+    
+    return cm
+
+
+# ===================== HYBRID-ML TRAINING =====================
+
+# Global store for hybrid ML results
+hybrid_results_store = {}
+
+def process_hybrid_training_task(
+    file_path: Path,
+    algorithm: str,
+    validation_type: str,
+    window_size: int,
+    segment_mode: str,
+    cluster_source: str
+):
+    try:
+        update_status("processing", "Starting Hybrid-ML Training", f"Loading {file_path}...")
+        
+        df = pd.read_csv(file_path)
+        update_status("processing", "Data Loaded", f"Loaded {len(df)} rows, {len(df.columns)} columns.")
+        
+        # Check required columns
+        if 'Volatility' not in df.columns:
+            update_status("error", "Column Missing", "'Volatility' column not found.")
+            return
+        
+        # Verify one-hot cluster columns exist
+        cluster_ohe_cols = [c for c in df.columns if c.startswith('Cluster_')]
+        if not cluster_ohe_cols:
+            update_status("error", "No One-Hot Columns", 
+                          "No Cluster_* columns found. Run clustering with one-hot encoding first.")
+            return
+        
+        update_status("processing", "Cluster Features Found", 
+                      f"Using {len(cluster_ohe_cols)} one-hot columns from {cluster_source}: {cluster_ohe_cols}")
+        
+        # Drop the raw 'Cluster' column (keep one-hot only)
+        if 'Cluster' in df.columns:
+            df = df.drop(columns=['Cluster'])
+            update_status("processing", "Preprocessing", "Dropped raw 'Cluster' column (keeping one-hot encoding).")
+        
+        def status_cb(msg):
+            update_status("processing", "Training", msg)
+        
+        update_status("processing", "Training Started", 
+                      f"Algorithm: {algorithm}, Validation: {validation_type}, Window: {window_size}, Mode: {segment_mode}, Cluster Source: {cluster_source}")
+        
+        if validation_type == 'rolling':
+            results = rolling_window_validation(
+                df, target_col='Volatility', algorithm=algorithm, window_size=window_size, segment_mode=segment_mode, status_callback=status_cb
+            )
+        elif validation_type == 'walk_forward':
+            results = walk_forward_validation(
+                df, target_col='Volatility', algorithm=algorithm, initial_window=window_size, segment_mode=segment_mode, status_callback=status_cb
+            )
+        else:
+            update_status("error", "Invalid Validation", f"Unknown validation type: {validation_type}")
+            return
+        
+        # Tag results with hybrid info
+        results['model'] = f"{results.get('model', algorithm)} (Hybrid + {cluster_source.upper()})"
+        results['cluster_source'] = cluster_source
+        results['cluster_features'] = cluster_ohe_cols
+        
+        # Save results to files
+        update_status("processing", "Saving Results", "Writing metrics and predictions to files...")
+        prefix = f"hybrid_{cluster_source}_{algorithm}_{validation_type}"
+        output_dir = DATA_DIR / "ml_results"
+        saved_files = save_results_to_file(results, output_dir, prefix)
+        
+        # Store results in memory
+        hybrid_results_store['latest'] = results
+        hybrid_results_store['saved_files'] = saved_files
+        
+        # Build summary
+        reg = results.get('regression_metrics', {})
+        cls = results.get('classification_metrics', {})
+        summary_parts = [
+            f"Overall MSE: {reg.get('overall_mse', 0):.6f}",
+            f"Overall MAE: {reg.get('overall_mae', 0):.6f}",
+            f"Overall R\u00b2: {reg.get('overall_r2', 0):.4f}",
+            f"Overall RMSE: {reg.get('overall_rmse', 0):.6f}"
+        ]
+        if cls:
+            summary_parts.append(f"Classification Accuracy: {cls.get('accuracy', 0):.4f}")
+            summary_parts.append(f"F1 Macro: {cls.get('f1_macro', 0):.4f}")
+        
+        summary = " | ".join(summary_parts)
+        
+        processing_status["output_file"] = saved_files.get('predictions', '')
+        processing_status["ml_saved_files"] = saved_files
+        
+        update_status("completed", "Hybrid-ML Training Complete", 
+                      f"Done. {len(results.get('folds', []))} folds. {summary}")
+        update_status("completed", "Hybrid-ML Training Complete",
+                      f"Files saved to: {output_dir}")
+    
+    except Exception as e:
+        update_status("error", "Hybrid-ML Error", f"Critical error: {str(e)}")
+        logger.error(e, exc_info=True)
+
+
+@app.get("/cluster-files")
+async def get_cluster_files():
+    """Returns the tracked DBSCAN and K-Means output file paths."""
+    return cluster_output_files
+
+
+@app.post("/train-hybrid")
+async def train_hybrid(
+    file_path: str = None,
+    algorithm: str = "linear_regression",
+    validation_type: str = "rolling",
+    window_size: int = 6,
+    segment_mode: str = "count",
+    cluster_source: str = "dbscan",
+    background_tasks: BackgroundTasks = None
+):
+    # If no file_path, auto-pick from cluster_output_files
+    if not file_path:
+        file_path = cluster_output_files.get(cluster_source, '')
+        if not file_path:
+            raise HTTPException(status_code=400, 
+                detail=f"No {cluster_source.upper()} clustered file found. Run clustering first.")
+    
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    
+    # Reset status
+    processing_status["status"] = "starting"
+    processing_status["details"] = []
+    processing_status["message"] = "Hybrid-ML Training Queued"
+    
+    background_tasks.add_task(
+        process_hybrid_training_task, file_path_obj, algorithm, validation_type, window_size, segment_mode, cluster_source
+    )
+    
+    return {"message": "Hybrid-ML Training started", "cluster_source": cluster_source, "file": file_path}
+
+
+@app.get("/hybrid-results")
+async def get_hybrid_results():
+    if 'latest' not in hybrid_results_store:
+        return {"error": "No Hybrid-ML results available yet. Run training first."}
+    
+    results = hybrid_results_store['latest']
+    saved_files = hybrid_results_store.get('saved_files', {})
+    
+    return {
+        "model": results.get('model'),
+        "parameters": results.get('parameters'),
+        "validation": results.get('validation'),
+        "segment_mode": results.get('segment_mode'),
+        "cluster_source": results.get('cluster_source'),
+        "cluster_features": results.get('cluster_features'),
+        "regression_metrics": results.get('regression_metrics'),
+        "classification_metrics": {
+            k: v for k, v in results.get('classification_metrics', {}).items() 
+            if k != 'classification_report'
+        },
+        "classification_report": results.get('classification_metrics', {}).get('classification_report', ''),
+        "folds": results.get('folds'),
+        "thresholds": results.get('thresholds'),
+        "saved_files": saved_files
+    }
+
+
+@app.get("/hybrid-confusion-matrix")
+async def get_hybrid_confusion_matrix():
+    if 'latest' not in hybrid_results_store:
+        return {"error": "No Hybrid-ML results available yet."}
+    
+    results = hybrid_results_store['latest']
+    cm = results.get('confusion_matrix')
+    if not cm:
+        return {"error": "No confusion matrix available."}
     
     return cm
 
