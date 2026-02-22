@@ -3,6 +3,7 @@ import numpy as np
 import json
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     accuracy_score, precision_score, recall_score, f1_score,
@@ -13,6 +14,15 @@ try:
     XGB_AVAILABLE = True
 except ImportError:
     XGB_AVAILABLE = False
+
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense, Dropout
+    from sklearn.preprocessing import MinMaxScaler
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
 
 
 # Columns to exclude from features
@@ -96,13 +106,58 @@ def _apply_labels(volatility_values: pd.Series, thresholds: dict) -> pd.Series:
     return volatility_values.apply(classify)
 
 
+class LSTMModelWrapper:
+    """
+    Simplistic wrapper to make a Keras LSTM model act like a scikit-learn regressor.
+    Handles internal scaling and 3D reshaping.
+    """
+    def __init__(self, **params):
+        self.params = params
+        self.model = None
+        self.scaler_X = MinMaxScaler()
+        self.scaler_y = MinMaxScaler()
+        
+    def fit(self, X, y):
+        # Scale
+        X_scaled = self.scaler_X.fit_transform(X)
+        y_scaled = self.scaler_y.fit_transform(y.reshape(-1, 1))
+        
+        # Reshape to (samples, time_steps=1, features)
+        X_reshaped = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
+        
+        # Build Model
+        self.model = Sequential([
+            LSTM(self.params.get('units', 32), input_shape=(1, X.shape[1]), activation='tanh'),
+            Dropout(0.1),
+            Dense(1)
+        ])
+        
+        self.model.compile(optimizer='adam', loss='mse')
+        
+        # Train
+        self.model.fit(
+            X_reshaped, y_scaled, 
+            epochs=self.params.get('epochs', 5), 
+            batch_size=self.params.get('batch_size', 32),
+            verbose=0
+        )
+        return self
+        
+    def predict(self, X):
+        X_scaled = self.scaler_X.transform(X)
+        X_reshaped = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
+        y_pred_scaled = self.model.predict(X_reshaped, verbose=0)
+        y_pred = self.scaler_y.inverse_transform(y_pred_scaled)
+        return y_pred.flatten()
+
+
 def _get_model(algorithm: str):
     """
     Instantiate the appropriate regression model and return its parameters.
     """
     if algorithm == 'xgboost':
         if not XGB_AVAILABLE:
-            raise ImportError("XGBoost is not installed. Please install it with 'pip install xgboost'.")
+            raise ImportError("XGBoost is not installed.")
         
         params = {
             'n_estimators': 100,
@@ -113,6 +168,29 @@ def _get_model(algorithm: str):
             'n_jobs': -1
         }
         model = XGBRegressor(**params)
+        return model, params
+    
+    elif algorithm == 'lstm':
+        if not TF_AVAILABLE:
+            raise ImportError("TensorFlow/Keras is not installed.")
+            
+        params = {
+            'units': 32,
+            'epochs': 10,
+            'batch_size': 32,
+            'optimizer': 'adam'
+        }
+        model = LSTMModelWrapper(**params)
+        return model, params
+    
+    elif algorithm == 'random_forest':
+        params = {
+            'n_estimators': 100,
+            'max_depth': 10,
+            'random_state': 42,
+            'n_jobs': -1
+        }
+        model = RandomForestRegressor(**params)
         return model, params
     
     else:
