@@ -11,7 +11,15 @@ from pathlib import Path
 from indicators import TechnicalIndicators
 from labelling import RiskLabeller
 from clustering import ClusteringModel
-from ml_training import rolling_window_validation, walk_forward_validation, save_results_to_file
+from ml_training import (
+    rolling_window_validation, walk_forward_validation, save_results_to_file,
+    _get_label_thresholds, _apply_labels
+)
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report,
+    mean_squared_error, mean_absolute_error, r2_score
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -913,6 +921,234 @@ async def get_hybrid_confusion_matrix():
     cm = results.get('confusion_matrix')
     if not cm:
         return {"error": "No confusion matrix available."}
+    
+    return cm
+
+
+# ===================== LABEL-WISE TRAINING =====================
+
+# Global store for Label-wise results
+label_results_store = {}
+
+def process_label_training_task(
+    file_path: Path,
+    algorithm: str,
+    validation_type: str,
+    window_size: int,
+    segment_mode: str
+):
+    try:
+        # Resolve relative path if needed
+        if not file_path.is_absolute():
+            file_path = DATA_DIR / file_path
+            
+        update_status("processing", "Starting Label-wise Training", f"Loading {file_path}...")
+        
+        df = pd.read_csv(file_path)
+        update_status("processing", "Data Loaded", f"Loaded {len(df)} rows, {len(df.columns)} columns.")
+        
+        if len(df.columns) < 5:
+             update_status("error", "Invalid File", "Input file has too few columns. Ensure you are using a labeled dataset (LBL_*) and not a predictions file.")
+             return
+
+        # Get global thresholds for classification
+        thresholds = _get_label_thresholds(df)
+        if thresholds:
+             update_status("processing", "Thresholds Found", f"Using global thresholds for classification: {thresholds}")
+             update_status("processing", "Information", "Note: Classification accuracy in Label-wise mode is expected to be high as models are evaluated only on their specific volatility regimes.")
+
+        # Look for the label column (case-insensitive)
+        label_col = next((c for c in df.columns if c.lower() in ['risk_label', 'actual_label', 'label']), None)
+        
+        if not label_col:
+            update_status("error", "Column Missing", "'Risk_Label' column not found. Run Volatility labeling first.")
+            return
+
+        labels_to_train = ['Low', 'Medium', 'High']
+        results_by_label = {}
+        
+        all_actuals = []
+        all_predictions = []
+
+        for risk_val in labels_to_train:
+            update_status("processing", "Training Sub-model", f"Filtering data for Label: {risk_val}...")
+            # Match if the column value starts with the target label (e.g. "High" matches "High Risk")
+            df_label = df[df[label_col].astype(str).str.lower().str.startswith(risk_val.lower())].copy()
+            
+            if len(df_label) < 20:
+                update_status("processing", "Skipping Label", f"Not enough data for label '{risk_val}' ({len(df_label)} rows).")
+                continue
+                
+            def label_status_cb(msg):
+                update_status("processing", f"Training ({risk_val})", msg)
+            
+            try:
+                if validation_type == 'rolling':
+                    res = rolling_window_validation(
+                        df_label, target_col='Volatility', algorithm=algorithm, 
+                        window_size=window_size, segment_mode=segment_mode, 
+                        status_callback=label_status_cb, thresholds=thresholds
+                    )
+                else:
+                    res = walk_forward_validation(
+                        df_label, target_col='Volatility', algorithm=algorithm, 
+                        initial_window=window_size, segment_mode=segment_mode, 
+                        status_callback=label_status_cb, thresholds=thresholds
+                    )
+                
+                # Accumulate actuals and predictions for overall metrics
+                if res.get('all_actuals') and res.get('all_predictions'):
+                    all_actuals.extend(res['all_actuals'])
+                    all_predictions.extend(res['all_predictions'])
+
+                # Save sub-model results
+                prefix = f"label_{risk_val}_{algorithm}_{validation_type}"
+                output_dir = DATA_DIR / "ml_results" / "label_wise"
+                saved_files = save_results_to_file(res, output_dir, prefix)
+                
+                results_by_label[risk_val] = {
+                    "metrics": res,
+                    "saved_files": saved_files
+                }
+            except Exception as e:
+                update_status("processing", "Sub-model Error", f"Error training {risk_val}: {str(e)}")
+                continue
+
+        if not results_by_label:
+             update_status("error", "Training Failed", "Could not train any label-wise models. Check data distribution.")
+             return
+
+        # Overall Metrics Calculation
+        overall_reg = {}
+        overall_cls = {}
+        overall_cm = None
+
+        if all_actuals and all_predictions:
+            act_np = np.array(all_actuals)
+            pred_np = np.array(all_predictions)
+            
+            overall_reg = {
+                'overall_mse': float(mean_squared_error(act_np, pred_np)),
+                'overall_mae': float(mean_absolute_error(act_np, pred_np)),
+                'overall_r2': float(r2_score(act_np, pred_np)),
+                'overall_rmse': float(np.sqrt(mean_squared_error(act_np, pred_np)))
+            }
+            
+            if thresholds:
+                act_labels = _apply_labels(pd.Series(act_np), thresholds)
+                pred_labels = _apply_labels(pd.Series(pred_np), thresholds)
+                
+                label_order = ['Low Risk', 'Medium Risk', 'High Risk']
+                present_labels = sorted(set(act_labels) | set(pred_labels), 
+                                       key=lambda x: label_order.index(x) if x in label_order else 99)
+                
+                overall_cls = {
+                    'accuracy': float(accuracy_score(act_labels, pred_labels)),
+                    'precision_macro': float(precision_score(act_labels, pred_labels, average='macro', zero_division=0)),
+                    'recall_macro': float(recall_score(act_labels, pred_labels, average='macro', zero_division=0)),
+                    'f1_macro': float(f1_score(act_labels, pred_labels, average='macro', zero_division=0)),
+                    'classification_report': classification_report(act_labels, pred_labels, zero_division=0)
+                }
+                
+                cm_data = confusion_matrix(act_labels, pred_labels, labels=present_labels)
+                overall_cm = {
+                    'matrix': cm_data.tolist(),
+                    'labels': present_labels
+                }
+
+        # Store in memory
+        label_results_store['latest'] = results_by_label
+        label_results_store['algorithm'] = algorithm
+        label_results_store['validation_type'] = validation_type
+        label_results_store['segment_mode'] = segment_mode
+        label_results_store['overall_regression_metrics'] = overall_reg
+        label_results_store['overall_classification_metrics'] = overall_cls
+        label_results_store['overall_confusion_matrix'] = overall_cm
+        label_results_store['thresholds'] = thresholds
+        
+        summary = f"Overall R²: {overall_reg.get('overall_r2', 0):.4f}"
+        if overall_cls:
+             summary += f" | Accuracy: {overall_cls.get('accuracy', 0):.4f}"
+
+        update_status("completed", "Label-wise Training Complete", 
+                      f"Trained models for: {', '.join(results_by_label.keys())}. {summary}")
+                      
+    except Exception as e:
+        update_status("error", "Label-wise Error", f"Critical error: {str(e)}")
+        logger.error(e, exc_info=True)
+
+
+@app.post("/train-label-wise")
+async def train_label_wise(
+    file_path: str = None,
+    algorithm: str = "linear_regression",
+    validation_type: str = "rolling",
+    window_size: int = 6,
+    segment_mode: str = "count",
+    background_tasks: BackgroundTasks = None
+):
+    if not file_path:
+        # Priority: Clustering output > Labeling output > Generic output
+        if cluster_output_files.get("dbscan"):
+             file_path = cluster_output_files["dbscan"]
+        elif cluster_output_files.get("kmeans"):
+             file_path = cluster_output_files["kmeans"]
+        elif processing_status.get("output_file") and "LBL_" in processing_status["output_file"]:
+             file_path = processing_status["output_file"]
+        elif processing_status.get("output_file"):
+            file_path = processing_status["output_file"]
+        else:
+            raise HTTPException(status_code=400, detail="No file selected. Run Volatility Labeling or Clustering first.")
+            
+    file_path_obj = Path(file_path)
+    if not file_path_obj.exists():
+        # Try relative to data dir
+        alt_path = DATA_DIR / file_path
+        if alt_path.exists():
+            file_path_obj = alt_path
+        else:
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+    
+    # Reset status
+    processing_status["status"] = "starting"
+    processing_status["details"] = []
+    processing_status["message"] = "Label-wise Training Queued"
+    
+    background_tasks.add_task(
+        process_label_training_task, file_path_obj, algorithm, validation_type, window_size, segment_mode
+    )
+    
+    return {"message": "Label-wise Training started"}
+
+
+@app.get("/label-wise-results")
+async def get_label_wise_results():
+    if 'latest' not in label_results_store:
+        return {"error": "No results available."}
+        
+    return {
+        "algorithm": label_results_store.get('algorithm'),
+        "validation": label_results_store.get('validation_type'),
+        "segment_mode": label_results_store.get('segment_mode'),
+        "thresholds": label_results_store.get('thresholds'),
+        "overall_regression_metrics": label_results_store.get('overall_regression_metrics'),
+        "overall_classification_metrics": {
+            k: v for k, v in label_results_store.get('overall_classification_metrics', {}).items() 
+            if k != 'classification_report'
+        },
+        "overall_classification_report": label_results_store.get('overall_classification_metrics', {}).get('classification_report', ''),
+        "results": label_results_store['latest']
+    }
+
+
+@app.get("/label-wise-confusion-matrix")
+async def get_label_wise_confusion_matrix():
+    if 'latest' not in label_results_store:
+        return {"error": "No Label-wise results available yet."}
+    
+    cm = label_results_store.get('overall_confusion_matrix')
+    if not cm:
+        return {"error": "No confusion matrix available for Label-wise training."}
     
     return cm
 

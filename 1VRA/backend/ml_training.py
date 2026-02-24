@@ -279,7 +279,8 @@ def rolling_window_validation(
     algorithm: str = 'linear_regression',
     window_size: int = 6,
     segment_mode: str = 'count',
-    status_callback=None
+    status_callback=None,
+    thresholds: dict = None
 ) -> dict:
     """
     Rolling Window Validation for a selected Algorithm.
@@ -303,12 +304,14 @@ def rolling_window_validation(
         'thresholds': {}
     }
     
-    # Get label thresholds from data
-    thresholds = _get_label_thresholds(df)
+    # Get label thresholds from data if not provided
+    if thresholds is None:
+        thresholds = _get_label_thresholds(df)
+    
     if thresholds:
         results['thresholds'] = thresholds
         if status_callback:
-            status_callback(f"Label thresholds extracted: {thresholds}")
+            status_callback(f"Label thresholds used: {thresholds}")
     
     # Select features
     feature_cols = _select_features(df)
@@ -443,7 +446,8 @@ def walk_forward_validation(
     algorithm: str = 'linear_regression',
     initial_window: int = 3,
     segment_mode: str = 'count',
-    status_callback=None
+    status_callback=None,
+    thresholds: dict = None
 ) -> dict:
     """
     Walk-Forward (Expanding Window) Validation for a selected Algorithm.
@@ -467,12 +471,14 @@ def walk_forward_validation(
         'thresholds': {}
     }
     
-    # Get label thresholds from data
-    thresholds = _get_label_thresholds(df)
+    # Get label thresholds from data if not provided
+    if thresholds is None:
+        thresholds = _get_label_thresholds(df)
+        
     if thresholds:
         results['thresholds'] = thresholds
         if status_callback:
-            status_callback(f"Label thresholds extracted: {thresholds}")
+            status_callback(f"Label thresholds used: {thresholds}")
     
     # Select features
     feature_cols = _select_features(df)

@@ -85,6 +85,11 @@ document.querySelectorAll('.nav-links li').forEach(li => {
             if (volOutputPath.textContent !== '...' && !clusterInputPath.value) {
                 clusterInputPath.value = volOutputPath.textContent;
             }
+        } else if (tabId === 'labelwise') {
+            // Auto-fill from Volatility/Label output (MUST be the labeled one)
+            if (volOutputPath.textContent !== '...' && !lwInputPath.value) {
+                lwInputPath.value = volOutputPath.textContent;
+            }
         }
     });
 });
@@ -908,6 +913,11 @@ document.querySelectorAll('.nav-links li').forEach(li => {
             if (volOutputPath && volOutputPath.textContent !== '...' && !mlInputPath.value) {
                 mlInputPath.value = volOutputPath.textContent;
             }
+        } else if (tabId === 'labelwise') {
+            // Auto-fill from Volatility/Label output (MUST be the labeled one)
+            if (volOutputPath && volOutputPath.textContent !== '...' && !lwInputPath.value) {
+                lwInputPath.value = volOutputPath.textContent;
+            }
         }
     });
 });
@@ -1538,6 +1548,225 @@ hybridConfusionBtn.addEventListener('click', async () => {
         cmModal.classList.remove('hidden');
 
     } catch (error) {
-        alert('Failed to load confusion matrix: ' + error.message);
     }
 });
+
+
+// ===================== LABEL-WISE TRAINING =====================
+
+const lwAlgorithm = document.getElementById('lwAlgorithm');
+const lwValidation = document.getElementById('lwValidation');
+const lwSegmentMode = document.getElementById('lwSegmentMode');
+const lwInputPath = document.getElementById('lwInputPath');
+const lwCsvFile = document.getElementById('lwCsvFile');
+const lwWindowSize = document.getElementById('lwWindowSize');
+const lwWindowLabel = document.getElementById('lwWindowLabel');
+const lwTrainBtn = document.getElementById('lwTrainBtn');
+const lwServerLogs = document.getElementById('lwServerLogs');
+const lwResultsGrid = document.getElementById('lwResultsGrid');
+
+const lwOverallMetricsSection = document.getElementById('lwOverallMetricsSection');
+const lwOverallRegMetrics = document.getElementById('lwOverallRegMetrics');
+const lwClassificationCard = document.getElementById('lwClassificationCard');
+const lwClassMetricsList = document.getElementById('lwClassMetricsList');
+const lwConfusionBtn = document.getElementById('lwConfusionBtn');
+
+const lwLowMetrics = document.getElementById('lwLowMetrics');
+const lwMedMetrics = document.getElementById('lwMedMetrics');
+const lwHighMetrics = document.getElementById('lwHighMetrics');
+const lwLowTable = document.getElementById('lwLowTable').querySelector('tbody');
+const lwMedTable = document.getElementById('lwMedTable').querySelector('tbody');
+const lwHighTable = document.getElementById('lwHighTable').querySelector('tbody');
+
+// CSV Browse Fallback
+if (lwCsvFile) {
+    lwCsvFile.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            lwInputPath.value = `[Upload] ${file.name}`;
+            addLog(lwServerLogs, 'info', `Selected local file: ${file.name}`);
+        }
+    });
+}
+
+// Update Labels based on Strategy
+function updateLwHints() {
+    const val = lwValidation.value;
+    const mode = lwSegmentMode.value;
+    const unit = mode === 'month' ? 'months' : 'segments';
+    lwWindowLabel.textContent = (val === 'rolling' ? 'Window Size' : 'Initial Window') + ` (${unit})`;
+}
+if (lwValidation) lwValidation.addEventListener('change', updateLwHints);
+if (lwSegmentMode) lwSegmentMode.addEventListener('change', updateLwHints);
+
+// Train Logic
+if (lwTrainBtn) {
+    lwTrainBtn.addEventListener('click', async () => {
+        const algorithm = lwAlgorithm.value;
+        const validationType = lwValidation.value;
+        const segmentMode = lwSegmentMode.value;
+        const windowSize = lwWindowSize.value;
+        let filePath = lwInputPath.value;
+
+        if (!filePath) {
+            alert("Please select a file.");
+            return;
+        }
+
+        lwTrainBtn.disabled = true;
+        try {
+            lwOverallMetricsSection.classList.add('hidden');
+            lwClassificationCard.classList.add('hidden');
+            lwResultsGrid.classList.add('hidden');
+            lwServerLogs.innerHTML = '';
+            addLog(lwServerLogs, 'system', `Starting Label-wise training for ${algorithm}...`);
+
+            const url = new URL(`${API_URL}/train-label-wise`);
+            url.searchParams.append('algorithm', algorithm);
+            url.searchParams.append('validation_type', validationType);
+            url.searchParams.append('window_size', windowSize);
+            url.searchParams.append('segment_mode', segmentMode);
+            if (!filePath.startsWith('[Upload]')) {
+                url.searchParams.append('file_path', filePath);
+            }
+
+            const resp = await fetch(url.toString(), { method: 'POST' });
+            if (!resp.ok) throw new Error('Failed to start training');
+
+            startLwPolling();
+
+        } catch (err) {
+            addLog(lwServerLogs, 'error', err.message);
+            lwTrainBtn.disabled = false;
+            lwTrainBtn.textContent = 'Retry';
+        }
+    });
+}
+
+function startLwPolling() {
+    const pollingInterval = setInterval(async () => {
+        try {
+            const resp = await fetch(`${API_URL}/status`);
+            const status = await resp.json();
+
+            lwServerLogs.innerHTML = '';
+            status.details.forEach(d => {
+                addLog(lwServerLogs, 'info', d);
+            });
+            lwServerLogs.scrollTop = lwServerLogs.scrollHeight;
+
+            if (status.status === 'completed') {
+                clearInterval(pollingInterval);
+                lwTrainBtn.disabled = false;
+                lwTrainBtn.textContent = 'Start Parallel Training';
+                loadLwResults();
+            } else if (status.status === 'error') {
+                clearInterval(pollingInterval);
+                lwTrainBtn.disabled = false;
+                addLog(lwServerLogs, 'error', 'Training stopped.');
+            }
+        } catch (e) { clearInterval(pollingInterval); }
+    }, 1000);
+}
+
+async function loadLwResults() {
+    try {
+        const resp = await fetch(`${API_URL}/label-wise-results`);
+        const data = await resp.json();
+        if (data.error) return;
+
+        lwResultsGrid.classList.remove('hidden');
+
+        // Populate Overall Regression Metrics
+        const ovReg = data.overall_regression_metrics || {};
+        lwOverallMetricsSection.classList.remove('hidden');
+        lwOverallRegMetrics.innerHTML = `
+            <li><strong>Model:</strong> ${data.algorithm.replace('_', ' ').toUpperCase()} (Label-wise Parallel)</li>
+            <li><strong>Validation:</strong> ${data.validation || 'N/A'}</li>
+            <li><strong>MSE:</strong> ${(ovReg.overall_mse || 0).toFixed(6)}</li>
+            <li><strong>MAE:</strong> ${(ovReg.overall_mae || 0).toFixed(6)}</li>
+            <li><strong>RMSE:</strong> ${(ovReg.overall_rmse || 0).toFixed(6)}</li>
+            <li><strong>R² (Combined):</strong> <span class="${ovReg.overall_r2 > 0.5 ? 'metric-good' : ovReg.overall_r2 > 0 ? 'metric-warn' : 'metric-bad'}">${(ovReg.overall_r2 || 0).toFixed(4)}</span></li>
+        `;
+
+        // Populate Overall Classification Metrics
+        const ovCls = data.overall_classification_metrics || {};
+        if (ovCls.accuracy !== undefined) {
+            lwClassificationCard.classList.remove('hidden');
+            lwClassMetricsList.innerHTML = `
+                <li><strong>Accuracy:</strong> <span class="${ovCls.accuracy > 0.7 ? 'metric-good' : ovCls.accuracy > 0.5 ? 'metric-warn' : 'metric-bad'}">${(ovCls.accuracy * 100).toFixed(2)}%</span></li>
+                <li><strong>Precision (macro):</strong> ${(ovCls.precision_macro || 0).toFixed(4)}</li>
+                <li><strong>Recall (macro):</strong> ${(ovCls.recall_macro || 0).toFixed(4)}</li>
+                <li><strong>F1 Score (macro):</strong> ${(ovCls.f1_macro || 0).toFixed(4)}</li>
+            `;
+
+            if (data.thresholds) {
+                const t = data.thresholds;
+                lwClassMetricsList.innerHTML += `
+                    <li style="margin-top: 8px; border-top: 1px solid var(--border); padding-top: 8px;">
+                        <strong>Labels Used (Volatility Strategist):</strong><br>
+                        Low ≤ ${(t.low_max || 0).toFixed(6)}<br>
+                        Medium: ${(t.med_min || 0).toFixed(6)} – ${(t.med_max || 0).toFixed(6)}<br>
+                        High ≥ ${(t.high_min || 0).toFixed(6)}
+                    </li>
+                `;
+            }
+        }
+
+        const labels = ['Low', 'Medium', 'High'];
+        const metricContainers = { 'Low': lwLowMetrics, 'Medium': lwMedMetrics, 'High': lwHighMetrics };
+        const tableContainers = { 'Low': lwLowTable, 'Medium': lwMedTable, 'High': lwHighTable };
+
+        labels.forEach(l => {
+            const entry = data.results[l];
+            const mCont = metricContainers[l];
+            const tCont = tableContainers[l];
+
+            if (!entry) {
+                mCont.innerHTML = '<li>No data.</li>';
+                tCont.innerHTML = '';
+                return;
+            }
+
+            const reg = entry.metrics.regression_metrics || {};
+            mCont.innerHTML = `
+                <li><strong>MSE:</strong> ${reg.overall_mse.toFixed(6)}</li>
+                <li><strong>MAE:</strong> ${reg.overall_mae.toFixed(6)}</li>
+                <li><strong>R²:</strong> <span class="${reg.overall_r2 > 0 ? 'metric-good' : 'metric-bad'}">${reg.overall_r2.toFixed(4)}</span></li>
+            `;
+
+            tCont.innerHTML = '';
+            (entry.metrics.folds || []).forEach(f => {
+                tCont.innerHTML += `
+                    <tr>
+                        <td>${f.fold}</td>
+                        <td>${f.test_rows}</td>
+                        <td>${f.r2.toFixed(3)}</td>
+                    </tr>
+                `;
+            });
+        });
+
+    } catch (err) { console.error(err); }
+}
+
+// Label-wise Confusion Matrix Button
+if (lwConfusionBtn) {
+    lwConfusionBtn.addEventListener('click', async () => {
+        try {
+            const resp = await fetch(`${API_URL}/label-wise-confusion-matrix`);
+            const data = await resp.json();
+
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+
+            renderConfusionMatrix(data);
+            cmModal.classList.remove('hidden');
+
+        } catch (error) {
+            alert('Failed to load confusion matrix: ' + error.message);
+        }
+    });
+}

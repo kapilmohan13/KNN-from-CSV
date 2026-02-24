@@ -25,6 +25,7 @@
                 <li data-tab="clustering">3. DBSCAN Clustering</li>
                 <li data-tab="mltraining">4. ML Training</li>
                 <li data-tab="hybridml">5. Hybrid-ML</li>
+                <li data-tab="labelwise">6. Label-wise Training</li>
                 <li class="disabled">Backtesting (Coming Soon)</li>
             </ul>
         </nav>
@@ -502,6 +503,153 @@ Collects performance metrics across all test windows.</textarea>
                 <div class="card hidden" id="hybridFilesCard">
                     <h3>5. Saved Files</h3>
                     <ul class="params-list" id="hybridFilesList"></ul>
+                </div>
+            </div>
+
+            <!-- Label-wise Training Tab -->
+            <div id="labelwise" class="tab-content hidden">
+                <header class="tab-header">
+                    <h1>Label-wise Training (Sub-model Comparison)</h1>
+                    <p>Train independent models for each volatility label (Low, Medium, High) to see which regimes are
+                        most predictable.</p>
+                </header>
+
+                <div class="card">
+                    <h3>1. Configuration</h3>
+                    <div class="file-upload-container" style="flex-wrap: wrap;">
+                        <div class="row" style="width: 100%;">
+                            <div class="input-group" style="flex: 1;">
+                                <label>Algorithm</label>
+                                <select id="lwAlgorithm" class="input-select">
+                                    <option value="linear_regression">Linear Regression</option>
+                                    <option value="xgboost">XGBoost (Regressor)</option>
+                                    <option value="lstm">LSTM (Deep Learning)</option>
+                                    <option value="random_forest">Random Forest (Regressor)</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label>Validation Strategy</label>
+                                <select id="lwValidation" class="input-select">
+                                    <option value="rolling">Rolling Window Validation</option>
+                                    <option value="walk_forward">Walk-Forward (Expanding) Validation</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label>Segmentation Mode</label>
+                                <select id="lwSegmentMode" class="input-select">
+                                    <option value="count">Record Count (Fixed Size)</option>
+                                    <option value="month">Monthly (Calendar Month)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row" style="width: 100%; margin-top: 12px;">
+                            <div class="input-group" style="flex: 2;">
+                                <label>Labeled Data File</label>
+                                <div class="row">
+                                    <input type="text" id="lwInputPath" class="input-text"
+                                        placeholder="Path to LBL_VOL_... file">
+                                    <label for="lwCsvFile" class="btn small">Browse</label>
+                                    <input type="file" id="lwCsvFile" accept=".csv" hidden>
+                                </div>
+                            </div>
+                            <div class="input-group" id="lwWindowGroup">
+                                <label id="lwWindowLabel">Window Size (segments)</label>
+                                <input type="number" id="lwWindowSize" class="input-number" value="6" min="2" max="20">
+                            </div>
+                        </div>
+                        <div style="width: 100%; margin-top: 12px;">
+                            <button id="lwTrainBtn" class="btn primary">Start Parallel Training</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>2. Training Logs</h3>
+                    <div id="lwServerLogs" class="log-window">
+                        <div class="log-entry system">Ready for label-wise comparison.</div>
+                    </div>
+                </div>
+
+                <div class="grid-container hidden" id="lwOverallMetricsSection">
+                    <div class="card parameters-section">
+                        <h3>Overall Regression Metrics (Combined Results)</h3>
+                        <ul class="params-list" id="lwOverallRegMetrics">
+                            <li>Waiting for training...</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card hidden" id="lwClassificationCard">
+                    <h3>Overall Classification Metrics</h3>
+                    <div class="row" style="gap: 24px; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <ul class="params-list" id="lwClassMetricsList"></ul>
+                        </div>
+                        <div style="flex: 0 0 auto;">
+                            <button id="lwConfusionBtn" class="btn primary" style="background: var(--primary);">Show
+                                Confusion Matrix</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="lwResultsGrid" class="hidden">
+                    <div class="tab-header" style="margin-top: 2rem;">
+                        <h2>Detailed Sub-model Comparison</h2>
+                        <p>Performance metrics for each volatility regime trained independently.</p>
+                    </div>
+                    <div class="grid-container" style="margin-top: 24px;">
+                        <!-- Low Risk Results -->
+                        <div class="card">
+                            <h3 style="color: #27ae60;">Model: LOW Volatility</h3>
+                            <ul class="params-list" id="lwLowMetrics"></ul>
+                            <div class="table-wrapper" style="margin-top: 12px;">
+                                <table id="lwLowTable" class="mini-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Fold</th>
+                                            <th>Rows</th>
+                                            <th>R²</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <!-- Medium Risk Results -->
+                        <div class="card">
+                            <h3 style="color: #f39c12;">Model: MEDIUM Volatility</h3>
+                            <ul class="params-list" id="lwMedMetrics"></ul>
+                            <div class="table-wrapper" style="margin-top: 12px;">
+                                <table id="lwMedTable" class="mini-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Fold</th>
+                                            <th>Rows</th>
+                                            <th>R²</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <!-- High Risk Results -->
+                        <div class="card">
+                            <h3 style="color: #e74c3c;">Model: HIGH Volatility</h3>
+                            <ul class="params-list" id="lwHighMetrics"></ul>
+                            <div class="table-wrapper" style="margin-top: 12px;">
+                                <table id="lwHighTable" class="mini-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Fold</th>
+                                            <th>Rows</th>
+                                            <th>R²</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
