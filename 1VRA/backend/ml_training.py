@@ -211,15 +211,20 @@ def _build_segments(df: pd.DataFrame, mode: str, size_param: int, status_callbac
     total_rows = len(df)
     
     if mode == 'month':
-        if 'time' not in df.columns:
+        time_col = next((c for c in ['time', 'datetime', 'Timestamp'] if c in df.columns), None)
+        if not time_col:
             if status_callback:
-                status_callback("Warning: 'time' column not found for monthly mode. Falling back to count mode.")
+                status_callback("Warning: No time/datetime column found for monthly mode. Falling back to count mode.")
             mode = 'count'
         else:
             try:
-                # Format: 15-04-2025 09:15:00
+                # Format: 15-04-2025 09:15:00 or standard SQL format
                 df_temp = df.copy()
-                df_temp['dt'] = pd.to_datetime(df['time'], format='%d-%m-%Y %H:%M:%S', errors='coerce')
+                df_temp['dt'] = pd.to_datetime(df[time_col], dayfirst=True, errors='coerce')
+                
+                # Check if conversion worked (if not, try without dayfirst)
+                if df_temp['dt'].isna().all():
+                     df_temp['dt'] = pd.to_datetime(df[time_col], errors='coerce')
                 
                 # Check if conversion worked
                 if df_temp['dt'].isna().all():
@@ -330,7 +335,9 @@ def rolling_window_validation(
     feature_cols = [c for c in feature_cols if c != target_col]
     
     # Remove rows with NaN in features or target
-    df_clean = df[feature_cols + [target_col] + (['time'] if 'time' in df.columns else [])].dropna().reset_index(drop=True)
+    time_cols = [c for c in ['time', 'datetime', 'Timestamp'] if c in df.columns]
+    keep_cols = feature_cols + [target_col] + time_cols
+    df_clean = df[keep_cols].dropna().reset_index(drop=True)
     
     if status_callback:
         status_callback(f"Clean data: {len(df_clean)} rows after dropping NaN.")
@@ -497,7 +504,9 @@ def walk_forward_validation(
     feature_cols = [c for c in feature_cols if c != target_col]
     
     # Clean data
-    df_clean = df[feature_cols + [target_col] + (['time'] if 'time' in df.columns else [])].dropna().reset_index(drop=True)
+    time_cols = [c for c in ['time', 'datetime', 'Timestamp'] if c in df.columns]
+    keep_cols = feature_cols + [target_col] + time_cols
+    df_clean = df[keep_cols].dropna().reset_index(drop=True)
     
     if status_callback:
         status_callback(f"Clean data: {len(df_clean)} rows after dropping NaN.")

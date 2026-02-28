@@ -1578,11 +1578,14 @@ const lwLowTable = document.getElementById('lwLowTable').querySelector('tbody');
 const lwMedTable = document.getElementById('lwMedTable').querySelector('tbody');
 const lwHighTable = document.getElementById('lwHighTable').querySelector('tbody');
 
+let selectedLwFile = null;
+
 // CSV Browse Fallback
 if (lwCsvFile) {
     lwCsvFile.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
             const file = e.target.files[0];
+            selectedLwFile = file;
             lwInputPath.value = `[Upload] ${file.name}`;
             addLog(lwServerLogs, 'info', `Selected local file: ${file.name}`);
         }
@@ -1619,6 +1622,42 @@ if (lwTrainBtn) {
             lwClassificationCard.classList.add('hidden');
             lwResultsGrid.classList.add('hidden');
             lwServerLogs.innerHTML = '';
+
+            // Handle file upload if user browsed a file
+            if (selectedLwFile) {
+                addLog(lwServerLogs, 'info', 'Uploading file...');
+                const formData = new FormData();
+                formData.append('file', selectedLwFile);
+                try {
+                    const upResp = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+                    if (!upResp.ok) throw new Error('Upload failed');
+                    addLog(lwServerLogs, 'info', 'Processing base indicators...');
+                    await pollGenericForCompletion();
+                    const s = await (await fetch(`${API_URL}/status`)).json();
+                    filePath = s.output_file;
+                    selectedLwFile = null;
+                } catch (e) {
+                    addLog(lwServerLogs, 'error', 'Upload failed: ' + e.message);
+                    lwTrainBtn.disabled = false;
+                    return;
+                }
+            } else if (!filePath || filePath === '...' || filePath === '') {
+                // Fallback to last output
+                if (volOutputPath && volOutputPath.textContent !== '...') {
+                    filePath = volOutputPath.textContent;
+                } else {
+                    addLog(lwServerLogs, 'error', 'No input file specified. Please browse or paste a file path.');
+                    lwTrainBtn.disabled = false;
+                    return;
+                }
+            }
+
+            if (filePath.startsWith('[Upload]')) {
+                addLog(lwServerLogs, 'error', 'File upload did not complete. Please retry.');
+                lwTrainBtn.disabled = false;
+                return;
+            }
+
             addLog(lwServerLogs, 'system', `Starting Label-wise training for ${algorithm}...`);
 
             const url = new URL(`${API_URL}/train-label-wise`);
@@ -1626,12 +1665,13 @@ if (lwTrainBtn) {
             url.searchParams.append('validation_type', validationType);
             url.searchParams.append('window_size', windowSize);
             url.searchParams.append('segment_mode', segmentMode);
-            if (!filePath.startsWith('[Upload]')) {
-                url.searchParams.append('file_path', filePath);
-            }
+            url.searchParams.append('file_path', filePath);
 
             const resp = await fetch(url.toString(), { method: 'POST' });
-            if (!resp.ok) throw new Error('Failed to start training');
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || 'Failed to start training');
+            }
 
             startLwPolling();
 
@@ -1770,3 +1810,274 @@ if (lwConfusionBtn) {
         }
     });
 }
+
+
+// ===================== FYERS DATA LOADER =====================
+
+const fyersCsvFile = document.getElementById('fyersCsvFile');
+const fyersFileName = document.getElementById('fyersFileName');
+const fyersLoadBtn = document.getElementById('fyersLoadBtn');
+const fyersServerLogs = document.getElementById('fyersServerLogs');
+const fyersPreviewCard = document.getElementById('fyersPreviewCard');
+const fyersPreviewTable = document.getElementById('fyersPreviewTable');
+const fyersOutputPath = document.getElementById('fyersOutputPath');
+const fyersDropZone = document.getElementById('fyersDropZone');
+const fyersStats = document.getElementById('fyersStats');
+const fyersRowCount = document.getElementById('fyersRowCount');
+const fyersDateRange = document.getElementById('fyersDateRange');
+const fyersGotoVolBtn = document.getElementById('fyersGotoVolBtn');
+
+let selectedFyersFile = null;
+let fyersPollingInterval = null;
+
+// Required Fyers columns for validation
+const FYERS_REQUIRED_COLS = ['open', 'high', 'low', 'close', 'volume'];
+
+// File selection handler
+fyersCsvFile.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    selectedFyersFile = file;
+    fyersFileName.textContent = file.name;
+    fyersDropZone.classList.add('has-file');
+
+    // Reset
+    fyersPreviewCard.classList.add('hidden');
+    fyersStats.style.display = 'none';
+    fyersLoadBtn.disabled = false;
+    fyersServerLogs.innerHTML = '';
+    addLog(fyersServerLogs, 'system', `File selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+
+    // Quick client-side parse to show stats and validate columns
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const text = ev.target.result;
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) {
+            addLog(fyersServerLogs, 'error', 'File appears to be empty or has no data rows.');
+            fyersLoadBtn.disabled = true;
+            return;
+        }
+
+        const headerLine = lines[0];
+        const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
+
+        // Check required columns
+        const missing = FYERS_REQUIRED_COLS.filter(col => !headers.includes(col));
+        if (missing.length > 0) {
+            addLog(fyersServerLogs, 'error', `Missing required columns: ${missing.join(', ')}`);
+            addLog(fyersServerLogs, 'info', `Columns found: ${headers.join(', ')}`);
+            fyersLoadBtn.disabled = true;
+            return;
+        }
+
+        // Show stats
+        const rowCount = lines.length - 1; // subtract header
+        fyersRowCount.textContent = `📋 ${rowCount.toLocaleString()} data rows`;
+
+        // Try to extract date range
+        const dtIdx = headers.indexOf('datetime') !== -1 ? headers.indexOf('datetime') : -1;
+        if (dtIdx !== -1) {
+            try {
+                const firstRow = lines[1].split(',');
+                const lastRow = lines[lines.length - 1].split(',');
+                const startDt = firstRow[dtIdx]?.trim().replace(/"/g, '');
+                const endDt = lastRow[dtIdx]?.trim().replace(/"/g, '');
+                if (startDt && endDt) {
+                    fyersDateRange.textContent = `📅 ${startDt} → ${endDt}`;
+                }
+            } catch (err) {
+                fyersDateRange.textContent = '📅 Date range: parsing...';
+            }
+        }
+
+        fyersStats.style.display = 'flex';
+        addLog(fyersServerLogs, 'success', `✓ Columns validated: ${headers.filter(h => FYERS_REQUIRED_COLS.includes(h)).join(', ')} are present`);
+
+        // Note dropped columns
+        const droppedCols = headers.filter(h => !FYERS_REQUIRED_COLS.includes(h) && h !== 'datetime' && h !== 'timestamp');
+        if (droppedCols.length > 0) {
+            addLog(fyersServerLogs, 'info', `ℹ️ Will be ignored: ${droppedCols.join(', ')} (OI, VWAP etc. not needed)`);
+        }
+
+        fyersLoadBtn.disabled = false;
+    };
+
+    // Only read first 100KB for header + stats
+    const slicedFile = file.slice(0, 1024 * 100);
+    reader.readAsText(slicedFile);
+});
+
+// Process Fyers Data Button
+fyersLoadBtn.addEventListener('click', async () => {
+    if (!selectedFyersFile) {
+        addLog(fyersServerLogs, 'error', 'Please select a Fyers CSV file first.');
+        return;
+    }
+
+    // Reset UI
+    fyersLoadBtn.disabled = true;
+    fyersLoadBtn.textContent = '⏳ Uploading...';
+    fyersPreviewCard.classList.add('hidden');
+    fyersServerLogs.innerHTML = '';
+
+    addLog(fyersServerLogs, 'system', `Uploading Fyers data: ${selectedFyersFile.name}...`);
+    addLog(fyersServerLogs, 'info', 'OI, VWAP, and extra columns will be automatically dropped.');
+
+    const formData = new FormData();
+    formData.append('file', selectedFyersFile);
+
+    try {
+        const response = await fetch(`${API_URL}/upload-fyers`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Upload failed');
+        }
+
+        const data = await response.json();
+        addLog(fyersServerLogs, 'info', `Upload successful: ${data.filename}`);
+        addLog(fyersServerLogs, 'info', 'Processing indicators on Fyers OHLCV data...');
+
+        fyersLoadBtn.textContent = '⏳ Processing...';
+        startFyersPolling();
+
+    } catch (error) {
+        addLog(fyersServerLogs, 'error', `Error: ${error.message}`);
+        fyersLoadBtn.disabled = false;
+        fyersLoadBtn.textContent = '⚡ Process Fyers Data';
+    }
+});
+
+// Fyers Status Polling
+function startFyersPolling() {
+    if (fyersPollingInterval) clearInterval(fyersPollingInterval);
+
+    fyersPollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_URL}/status`);
+            const status = await response.json();
+
+            fyersServerLogs.innerHTML = '';
+            addLog(fyersServerLogs, 'info', `Status: ${status.status}`);
+
+            // Show all details
+            status.details.forEach(detail => {
+                let type = 'info';
+                if (detail.toLowerCase().includes('error')) type = 'error';
+                else if (detail.includes('Complete') || detail.includes('Saved')) type = 'success';
+                else if (detail.includes('Calculating') || detail.includes('Sorted')) type = 'info';
+
+                const div = document.createElement('div');
+                div.className = `log-entry ${type}`;
+                div.textContent = detail;
+                fyersServerLogs.appendChild(div);
+            });
+            fyersServerLogs.scrollTop = fyersServerLogs.scrollHeight;
+
+            if (status.status === 'completed') {
+                clearInterval(fyersPollingInterval);
+
+                fyersLoadBtn.disabled = false;
+                fyersLoadBtn.textContent = '⚡ Process Fyers Data';
+
+                addLog(fyersServerLogs, 'success', '🎉 Fyers data processed successfully!');
+                addLog(fyersServerLogs, 'success', `Output: ${status.output_file}`);
+
+                // Set output path
+                fyersOutputPath.textContent = status.output_file;
+
+                // Load preview
+                loadFyersPreview(status.output_file);
+
+            } else if (status.status === 'error') {
+                clearInterval(fyersPollingInterval);
+                fyersLoadBtn.disabled = false;
+                fyersLoadBtn.textContent = '🔄 Retry';
+                addLog(fyersServerLogs, 'error', 'Processing failed. Check logs above.');
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+        }
+    }, 1000);
+}
+
+// Load Fyers output preview
+async function loadFyersPreview(outputFilePath) {
+    try {
+        const response = await fetch(`${API_URL}/preview`);
+        const data = await response.json();
+
+        if (data.error) {
+            addLog(fyersServerLogs, 'error', `Preview error: ${data.error}`);
+            return;
+        }
+
+        // Render Table Headers
+        const thead = fyersPreviewTable.querySelector('thead');
+        thead.innerHTML = '';
+        const headerRow = document.createElement('tr');
+        data.columns.forEach(col => {
+            const th = document.createElement('th');
+            th.textContent = col;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+
+        // Render Body
+        const tbody = fyersPreviewTable.querySelector('tbody');
+        tbody.innerHTML = '';
+        data.preview.forEach(row => {
+            const tr = document.createElement('tr');
+            data.columns.forEach(col => {
+                const td = document.createElement('td');
+                let val = row[col];
+                if (typeof val === 'number') {
+                    val = val.toFixed(4);
+                } else if (val === null || val === undefined) {
+                    val = '-';
+                }
+                td.textContent = val;
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+
+        fyersPreviewCard.classList.remove('hidden');
+        addLog(fyersServerLogs, 'info', `Preview loaded: ${data.total_rows} total rows, ${data.columns.length} columns`);
+
+    } catch (error) {
+        console.error('Failed to load Fyers preview:', error);
+        addLog(fyersServerLogs, 'error', 'Failed to load output preview.');
+    }
+}
+
+// "Continue to Volatility" button — switch to Volatility tab and auto-fill path
+fyersGotoVolBtn.addEventListener('click', () => {
+    const outputPath = fyersOutputPath.textContent;
+    if (!outputPath || outputPath === '...') {
+        addLog(fyersServerLogs, 'error', 'No output file yet. Process Fyers data first.');
+        return;
+    }
+
+    // Switch to Volatility tab
+    document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+
+    const volNavItem = document.querySelector('.nav-links li[data-tab="volatility"]');
+    if (volNavItem) volNavItem.classList.add('active');
+
+    const volTab = document.getElementById('volatility');
+    if (volTab) volTab.classList.remove('hidden');
+
+    // Pre-fill the volatility input path
+    if (volInputPath) {
+        volInputPath.value = outputPath;
+        addLog(volServerLogs, 'success', `✓ Fyers output loaded: ${outputPath}`);
+        addLog(volServerLogs, 'info', 'Set window size and click "Compute Volatility" to continue.');
+    }
+});

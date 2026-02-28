@@ -21,11 +21,12 @@
             </div>
             <ul class="nav-links">
                 <li class="active" data-tab="indicators">Indicators Calculator</li>
-                <li data-tab="volatility">2. Volatility & Labels</li>
+                <li data-tab="volatility">2. Volatility &amp; Labels</li>
                 <li data-tab="clustering">3. DBSCAN Clustering</li>
                 <li data-tab="mltraining">4. ML Training</li>
                 <li data-tab="hybridml">5. Hybrid-ML</li>
                 <li data-tab="labelwise">6. Label-wise Training</li>
+                <li data-tab="fyersdata" class="fyers-nav-item">📊 Fyers Data Loader</li>
                 <li class="disabled">Backtesting (Coming Soon)</li>
             </ul>
         </nav>
@@ -649,6 +650,139 @@ Collects performance metrics across all test windows.</textarea>
                                 </table>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fyers Data Loader Tab -->
+            <div id="fyersdata" class="tab-content hidden">
+                <header class="tab-header">
+                    <h1>📊 Fyers Data Loader</h1>
+                    <p>Load Fyers historical OHLCV data for ML training & analysis. OI, VWAP and other extra fields are
+                        automatically ignored — only OHLCV is used.</p>
+                </header>
+
+                <!-- Info Banner -->
+                <div class="fyers-info-banner">
+                    <div class="fyers-info-icon">ℹ️</div>
+                    <div class="fyers-info-text">
+                        <strong>Fyers CSV Format</strong> — Your file should contain these columns:
+                        <code>timestamp, open, high, low, close, volume, datetime</code>
+                        &nbsp;|&nbsp; Datetime format: <code>2020-01-24 09:20:00</code>
+                        &nbsp;|&nbsp; Extra columns like <code>oi</code>, <code>vwap</code> are automatically dropped.
+                    </div>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="card">
+                    <h3>1. Load Fyers Data File</h3>
+                    <div class="fyers-upload-zone">
+                        <label for="fyersCsvFile" class="fyers-drop-zone" id="fyersDropZone">
+                            <div class="fyers-drop-icon">📂</div>
+                            <div class="fyers-drop-title">Click to select Fyers CSV</div>
+                            <div class="fyers-drop-subtitle" id="fyersFileName">No file selected</div>
+                            <div class="fyers-drop-hint">Supports large files — OI &amp; VWAP will be ignored
+                                automatically</div>
+                        </label>
+                        <input type="file" id="fyersCsvFile" accept=".csv" hidden>
+                        <div class="fyers-actions">
+                            <button id="fyersLoadBtn" class="btn primary fyers-btn" disabled>
+                                ⚡ Process Fyers Data
+                            </button>
+                            <div class="fyers-stats" id="fyersStats" style="display:none;">
+                                <div class="fyers-stat-item" id="fyersRowCount">—</div>
+                                <div class="fyers-stat-item" id="fyersDateRange">—</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Expected Columns Card -->
+                <div class="card fyers-columns-card">
+                    <h3>2. Expected Column Mapping</h3>
+                    <div class="fyers-col-grid">
+                        <div class="fyers-col-row fyers-col-used">
+                            <span class="fyers-col-badge used">✓ Used</span>
+                            <code>open</code> → Open Price
+                        </div>
+                        <div class="fyers-col-row fyers-col-used">
+                            <span class="fyers-col-badge used">✓ Used</span>
+                            <code>high</code> → High Price
+                        </div>
+                        <div class="fyers-col-row fyers-col-used">
+                            <span class="fyers-col-badge used">✓ Used</span>
+                            <code>low</code> → Low Price
+                        </div>
+                        <div class="fyers-col-row fyers-col-used">
+                            <span class="fyers-col-badge used">✓ Used</span>
+                            <code>close</code> → Close Price (primary)
+                        </div>
+                        <div class="fyers-col-row fyers-col-used">
+                            <span class="fyers-col-badge used">✓ Used</span>
+                            <code>volume</code> → Volume
+                        </div>
+                        <div class="fyers-col-row fyers-col-used">
+                            <span class="fyers-col-badge used">✓ Used</span>
+                            <code>datetime</code> → Timestamp for sorting
+                        </div>
+                        <div class="fyers-col-row fyers-col-dropped">
+                            <span class="fyers-col-badge dropped">✕ Dropped</span>
+                            <code>timestamp</code> → Unix epoch (ignored if datetime present)
+                        </div>
+                        <div class="fyers-col-row fyers-col-dropped">
+                            <span class="fyers-col-badge dropped">✕ Dropped</span>
+                            <code>oi, vwap</code>, or any other columns → Automatically ignored
+                        </div>
+                    </div>
+                    <div class="fyers-indicator-note">
+                        <strong>Indicators calculated on Fyers close:</strong>
+                        RSI (14) · Stoch RSI · MACD (12,26,9) · MA (16) · ROC (10) · Williams %R (14) · VWMA (14) · LRMA
+                        (14)
+                    </div>
+                </div>
+
+                <!-- Status & Logs -->
+                <div class="grid-container">
+                    <div class="card log-section">
+                        <h3>3. Processing Logs</h3>
+                        <div id="fyersServerLogs" class="log-window">
+                            <div class="log-entry system">Waiting for Fyers data upload...</div>
+                        </div>
+                    </div>
+
+                    <div class="card parameters-section">
+                        <h3>Indicators Applied</h3>
+                        <ul class="params-list">
+                            <li><strong>RSI:</strong> 14 periods</li>
+                            <li><strong>Stoch RSI:</strong> 14 periods</li>
+                            <li><strong>MACD:</strong> 12, 26, 9</li>
+                            <li><strong>Moving Average:</strong> 16 periods</li>
+                            <li><strong>ROC:</strong> 10 periods</li>
+                            <li><strong>Williams %R:</strong> 14 periods</li>
+                            <li><strong>VWMA:</strong> 14 periods</li>
+                            <li><strong>Linear Reg MA:</strong> 14 periods</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Output Preview -->
+                <div class="card preview-section hidden" id="fyersPreviewCard">
+                    <h3>4. Output Preview</h3>
+                    <div class="output-info">
+                        <div>
+                            <strong>Saved to:</strong> <span id="fyersOutputPath" class="highlight-path">...</span>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn small" onclick="copyPath('fyersOutputPath')">Copy Path</button>
+                            <button class="btn small fyers-goto-vol-btn" id="fyersGotoVolBtn">→ Continue to
+                                Volatility</button>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="fyersPreviewTable">
+                            <thead></thead>
+                            <tbody></tbody>
+                        </table>
                     </div>
                 </div>
             </div>

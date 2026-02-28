@@ -78,39 +78,50 @@ def process_file_task(file_path: Path, output_path: Path):
             return
 
         # Validate Columns
-        required_cols = ['time', 'intc'] # Minimum required
-        missing = [col for col in required_cols if col not in df.columns]
-        if missing:
-             update_status("error", "Validation failed", f"Missing columns: {missing}")
-             return
+        # Be flexible: look for 'time' or 'datetime', and 'intc' or 'close'
+        time_col = 'time' if 'time' in df.columns else ('datetime' if 'datetime' in df.columns else ('Timestamp' if 'Timestamp' in df.columns else None))
+        close_col = 'intc' if 'intc' in df.columns else ('close' if 'close' in df.columns else ('Close' if 'Close' in df.columns else None))
+
+        if not time_col or not close_col:
+            missing = []
+            if not time_col: missing.append('time/datetime')
+            if not close_col: missing.append('intc/close')
+            update_status("error", "Validation failed", f"Missing required columns: {missing}. Expected 'time' and 'intc', or 'datetime' and 'close'.")
+            return
 
         # Sort by Time
-        update_status("processing", "Sorting data", "Parsing timestamps and sorting...")
+        update_status("processing", "Sorting data", f"Parsing timestamps ({time_col}) and sorting...")
         try:
-            # Assuming format "10-02-2026 15:25:00" from user example
-            df['parsed_time'] = pd.to_datetime(df['time'], dayfirst=True) 
+            # Assuming format "10-02-2026 15:25:00" from user example or standard YYYY-MM-DD
+            df['parsed_time'] = pd.to_datetime(df[time_col], dayfirst=True, errors='coerce') 
+            if df['parsed_time'].isna().all():
+                 df['parsed_time'] = pd.to_datetime(df[time_col], infer_datetime_format=True, errors='coerce')
+            
+            df = df.dropna(subset=['parsed_time'])
             df = df.sort_values('parsed_time', ascending=True).reset_index(drop=True)
             df.drop(columns=['parsed_time'], inplace=True)
-            update_status("processing", "Sorted", f"Data sorted from {df['time'].iloc[0]} to {df['time'].iloc[-1]}")
+            update_status("processing", "Sorted", f"Data sorted from {df[time_col].iloc[0]} to {df[time_col].iloc[-1]}")
         except Exception as e:
             update_status("error", "Sorting failed", f"Error parsing dates: {str(e)}")
             return
 
         # Calculate Indicators
-        update_status("processing", "Calculating Indicators", "Starting technical analysis...")
+        update_status("processing", "Calculating Indicators", f"Starting technical analysis using {close_col}...")
         
         # Mapping columns
-        close = df['intc']
-        # Use intv (interval volume) if available, else v, else 0
+        close = df[close_col]
+        # Use intv (interval volume) if available, else v, else volume, else 0
         if 'intv' in df.columns:
             volume = df['intv']
         elif 'v' in df.columns:
             volume = df['v']
+        elif 'volume' in df.columns:
+            volume = df['volume']
         else:
             volume = pd.Series(np.ones(len(df))) # Fallback
             
-        high = df['inth'] if 'inth' in df.columns else close
-        low = df['intl'] if 'intl' in df.columns else close
+        high = df['inth'] if 'inth' in df.columns else (df['high'] if 'high' in df.columns else (df['High'] if 'High' in df.columns else close))
+        low = df['intl'] if 'intl' in df.columns else (df['low'] if 'low' in df.columns else (df['Low'] if 'Low' in df.columns else close))
         
         # RSI (6? User mentioned RSI, GenerateIndicators had default 14 or 6. User said "RSI". I'll use 14 as standard default if not specified)
         # Update: User "RSI" usually implies 14. 
@@ -236,6 +247,150 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
     background_tasks.add_task(process_file_task, file_path, output_path)
     
     return {"message": "File uploaded successfully, processing started", "filename": filename}
+
+
+# ===================== FYERS DATA LOADER =====================
+
+def process_fyers_file_task(file_path: Path, output_path: Path):
+    """
+    Process Fyers historical data with columns:
+    timestamp, open, high, low, close, volume, datetime
+    Maps to the standard pipeline schema and calculates all technical indicators.
+    """
+    try:
+        update_status("processing", "Starting Fyers Processing...", "Loading Fyers CSV file...")
+
+        # Load Data
+        try:
+            df = pd.read_csv(file_path)
+            update_status("processing", "File loaded", f"Loaded {len(df)} rows. Columns: {list(df.columns)}")
+        except Exception as e:
+            update_status("error", "Failed to load file", f"Error: {str(e)}")
+            return
+
+        # Validate Fyers Columns (case-insensitive)
+        df.columns = [c.strip().lower() for c in df.columns]
+        required_fyers_cols = ['open', 'high', 'low', 'close', 'volume']
+        missing = [col for col in required_fyers_cols if col not in df.columns]
+        if missing:
+            update_status("error", "Validation failed", f"Missing required Fyers columns: {missing}. Expected: timestamp, open, high, low, close, volume, datetime")
+            return
+
+        # Parse and sort by datetime
+        update_status("processing", "Parsing dates", "Parsing datetime column and sorting data...")
+        try:
+            # Try 'datetime' column first, fall back to 'timestamp'
+            if 'datetime' in df.columns:
+                df['_parsed_dt'] = pd.to_datetime(df['datetime'], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+                if df['_parsed_dt'].isna().all():
+                    df['_parsed_dt'] = pd.to_datetime(df['datetime'], infer_datetime_format=True, errors='coerce')
+            elif 'timestamp' in df.columns:
+                # Fyers timestamp may be Unix epoch or formatted string
+                df['_parsed_dt'] = pd.to_datetime(df['timestamp'], unit='s', errors='coerce')
+                if df['_parsed_dt'].isna().all():
+                    df['_parsed_dt'] = pd.to_datetime(df['timestamp'], infer_datetime_format=True, errors='coerce')
+            else:
+                update_status("error", "Date column missing", "Neither 'datetime' nor 'timestamp' column found.")
+                return
+
+            df = df.dropna(subset=['_parsed_dt'])
+            df = df.sort_values('_parsed_dt', ascending=True).reset_index(drop=True)
+
+            date_range_str = f"{df['_parsed_dt'].iloc[0]} to {df['_parsed_dt'].iloc[-1]}"
+            update_status("processing", "Sorted", f"Data sorted: {date_range_str} ({len(df)} rows)")
+        except Exception as e:
+            update_status("error", "Date parsing failed", f"Error parsing dates: {str(e)}")
+            return
+
+        # Drop irrelevant Fyers columns (oi, vwap, etc.) — keep only OHLCV + datetime
+        cols_to_keep = ['open', 'high', 'low', 'close', 'volume', '_parsed_dt']
+        if 'datetime' in df.columns:
+            cols_to_keep.append('datetime')
+        elif 'timestamp' in df.columns:
+            cols_to_keep.append('timestamp')
+
+        # Keep only the columns we need
+        df_clean = df[[c for c in cols_to_keep if c in df.columns]].copy()
+
+        update_status("processing", "Columns mapped", 
+                      f"Fyers fields mapped — using open, high, low, close, volume. Dropped: {[c for c in df.columns if c not in cols_to_keep]}")
+
+        # Extract series for indicators
+        close = df_clean['close']
+        volume = df_clean['volume']
+        high = df_clean['high']
+        low = df_clean['low']
+
+        # Calculate Indicators (same as standard pipeline)
+        update_status("processing", "Calculating RSI", "RSI (14)...")
+        df_clean['RSI'] = TechnicalIndicators.rsi(close, period=14)
+
+        update_status("processing", "Calculating Stoch RSI", "Stochastic RSI...")
+        df_clean['StochRSI'] = TechnicalIndicators.stochastic_rsi(close)
+
+        update_status("processing", "Calculating MACD", "MACD (12, 26, 9)...")
+        macd_df = TechnicalIndicators.macd(close)
+        df_clean = pd.concat([df_clean, macd_df], axis=1)
+
+        update_status("processing", "Calculating MA", "Moving Average (16)...")
+        df_clean['MA_16'] = TechnicalIndicators.moving_average(close, period=16)
+
+        update_status("processing", "Calculating ROC", "Rate of Change (10)...")
+        df_clean['ROC'] = TechnicalIndicators.rate_of_change(close, period=10)
+
+        update_status("processing", "Calculating Williams %R", "Williams %R (14)...")
+        df_clean['Williams_R'] = TechnicalIndicators.williams_r(high, low, close)
+
+        update_status("processing", "Calculating VWMA", "Volume Weighted MA...")
+        df_clean['VWMA'] = TechnicalIndicators.vwma(close, volume)
+
+        update_status("processing", "Calculating LRMA", "Linear Regression MA (14)... this may take a moment.")
+        df_clean['LRMA'] = TechnicalIndicators.linear_regression_ma(close, period=14)
+
+        # Drop the internal parsed datetime column before saving
+        df_clean.drop(columns=['_parsed_dt'], inplace=True, errors='ignore')
+
+        # Save Output
+        update_status("processing", "Saving", f"Saving processed Fyers data to {output_path}...")
+        df_clean.to_csv(output_path, index=False)
+
+        processing_status["output_file"] = str(output_path)
+        update_status("completed", "Fyers Processing Complete",
+                      f"Successfully saved {len(df_clean)} rows with {len(df_clean.columns)} columns to {output_path}")
+
+    except Exception as e:
+        update_status("error", "Unexpected Error", f"Critical processing error: {str(e)}")
+        logger.error(e, exc_info=True)
+
+
+@app.post("/upload-fyers")
+async def upload_fyers(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+    """
+    Upload a Fyers historical data CSV for indicator processing.
+    Expected columns: timestamp, open, high, low, close, volume, datetime
+    OI, vwap and other columns are automatically ignored.
+    """
+    # Reset status
+    processing_status["status"] = "starting"
+    processing_status["details"] = []
+    processing_status["message"] = "Fyers upload started"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"FYERS_{timestamp}_{file.filename}"
+    file_path = DATA_DIR / filename
+    output_filename = f"PROCESSED_{filename}"
+    output_path = DATA_DIR / output_filename
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    processing_status["last_file"] = filename
+    update_status("queued", "Fyers file queued", f"File uploaded to {file_path}")
+
+    # Start background processing with Fyers-specific task
+    background_tasks.add_task(process_fyers_file_task, file_path, output_path)
+
+    return {"message": "Fyers file uploaded successfully, processing started", "filename": filename}
 
 
 @app.post("/calculate-volatility")
